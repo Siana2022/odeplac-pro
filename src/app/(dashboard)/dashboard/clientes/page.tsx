@@ -12,7 +12,7 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Mail, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import {
   Dialog,
@@ -28,6 +28,7 @@ export default function ClientesPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null)
 
   const fetchClientes = async () => {
     setLoading(true)
@@ -43,6 +44,27 @@ export default function ClientesPage() {
   useEffect(() => {
     fetchClientes()
   }, [])
+
+  const handleSendEmail = async (clienteId: string) => {
+    setSendingEmail(clienteId)
+    try {
+      const response = await fetch('/api/clientes/send-portal-link', {
+        method: 'POST',
+        body: JSON.stringify({ clienteId }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast.success('Email enviado correctamente')
+      } else {
+        toast.error(data.error)
+      }
+    } catch (e) {
+      toast.error('Error al enviar email')
+    } finally {
+      setSendingEmail(null)
+    }
+  }
 
   const filteredClientes = clientes.filter(c =>
     c.nombre_fiscal.toLowerCase().includes(search.toLowerCase()) ||
@@ -114,7 +136,20 @@ export default function ClientesPage() {
                   <TableCell>{cliente.email}</TableCell>
                   <TableCell>{cliente.telefono || '-'}</TableCell>
                   <TableCell>{new Date(cliente.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right flex justify-end space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSendEmail(cliente.id)}
+                      disabled={sendingEmail === cliente.id}
+                    >
+                      {sendingEmail === cliente.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Mail className="h-4 w-4 mr-2" />
+                      )}
+                      Enviar Portal
+                    </Button>
                     <Button variant="ghost" size="sm">Ver Obras</Button>
                   </TableCell>
                 </TableRow>

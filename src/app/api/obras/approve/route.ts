@@ -33,7 +33,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Here we could trigger a real webhook or send an email to the admin
+    // Trigger external webhook if configured
+    const webhookUrl = process.env.APPROVAL_WEBHOOK_URL
+    if (webhookUrl) {
+      try {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            event: 'obra_approved',
+            obraId,
+            approvalDetails
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      } catch (webhookError) {
+        console.error('Webhook trigger failed:', webhookError)
+      }
+    }
+
     console.log(`Obra ${obraId} approved by client from IP ${ip}`)
 
     return NextResponse.json({ success: true, data })

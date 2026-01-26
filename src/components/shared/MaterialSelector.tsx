@@ -58,14 +58,14 @@ export function MaterialSelector({ onSelect }: { onSelect: (material: Material) 
           <Table>
             <TableBody>
               {results.map((m) => (
-                <TableRow key={m.id}>
-                  <TableCell className="py-2">
-                    <p className="font-medium text-sm">{m.nombre}</p>
-                    <p className="text-xs text-zinc-500">{m.unidad} - €{m.precio_coste}</p>
+                <TableRow key={m.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => onSelect(m)}>
+                  <TableCell className="py-4">
+                    <p className="font-bold text-sm">{m.nombre}</p>
+                    <p className="text-xs text-zinc-500 uppercase">{m.unidad} | €{m.precio_coste.toLocaleString()}</p>
                   </TableCell>
-                  <TableCell className="text-right py-2">
-                    <Button size="sm" variant="ghost" onClick={() => onSelect(m)}>
-                      <Plus className="h-4 w-4" />
+                  <TableCell className="text-right py-4">
+                    <Button size="icon" variant="secondary" className="h-10 w-10">
+                      <Plus className="h-5 w-5" />
                     </Button>
                   </TableCell>
                 </TableRow>

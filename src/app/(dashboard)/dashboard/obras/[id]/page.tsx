@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Editor } from '@/components/shared/Editor'
+import { CheckCircle2 } from 'lucide-react'
 import { MaterialSelector } from '@/components/shared/MaterialSelector'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { PDFDownloadButton } from '@/components/shared/PDFDownloadButton'
@@ -25,30 +26,56 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
   const [items, setItems] = useState<(PresupuestoItem & { materiales: Material })[]>([])
   const [loading, setLoading] = useState(true)
   const [generatingMemory, setGeneratingMemory] = useState(false)
-
-  const fetchData = async () => {
-    setLoading(true)
-    const { data: obraData } = await supabase.from('obras').select('*, clientes(*)').eq('id', id).single()
-    if (obraData) {
-      setObra(obraData)
-      setCliente(obraData.clientes)
-    }
-
-    const { data: itemsData } = await supabase.from('presupuestos_items').select('*, materiales(*)').eq('obra_id', id)
-    if (itemsData) setItems(itemsData as any)
-    setLoading(false)
-  }
+  const [invoice, setInvoice] = useState<Record<string, unknown> | null>(null)
+  const [emitting, setEmitting] = useState(false)
 
   useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      const { data: obraData } = await supabase.from('obras').select('*, clientes(*)').eq('id', id).single()
+      if (obraData) {
+        setObra(obraData)
+      }
+
+      const { data: itemsData } = await supabase.from('presupuestos_items').select('*, materiales(*)').eq('obra_id', id)
+      if (itemsData) setItems(itemsData as (PresupuestoItem & { materiales: Material })[])
+
+      const { data: invoiceData } = await supabase.from('facturas').select('*').eq('obra_id', id).single()
+      if (invoiceData) setInvoice(invoiceData as Record<string, unknown>)
+
+      setLoading(false)
+    }
     fetchData()
   }, [id])
 
-  const handleGenerateMemory = async () => {
+  const handleEmitInvoice = async () => {
+    setEmitting(true)
+    try {
+      const response = await fetch('/api/obras/emit-invoice', {
+        method: 'POST',
+        body: JSON.stringify({ obraId: id }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const data = await response.json()
+      if (data.success) {
+        toast.success('Factura emitida y registrada en Veri*factu')
+        fetchData()
+      } else {
+        toast.error(data.error)
+      }
+    } catch (e) {
+      toast.error('Error al emitir factura')
+    } finally {
+      setEmitting(false)
+    }
+  }
+
+  const handleGenerateMemory = async (obraId: string) => {
     setGeneratingMemory(true)
     try {
       const response = await fetch('/api/obras/generate-memory', {
         method: 'POST',
-        body: JSON.stringify({ obraId: id }),
+        body: JSON.stringify({ obraId }),
         headers: { 'Content-Type': 'application/json' }
       })
       const data = await response.json()
@@ -164,7 +191,7 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
                 }}>
                   <Save className="mr-2 h-4 w-4" /> Guardar
                 </Button>
-                <Button onClick={handleGenerateMemory} disabled={generatingMemory}>
+                <Button onClick={() => handleGenerateMemory(id)} disabled={generatingMemory}>
                   {generatingMemory ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                   Generar con IA
                 </Button>
@@ -179,7 +206,7 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
           </Card>
         </TabsContent>
 
-        <TabsContent value="seguimiento">
+        <TabsContent value="seguimiento" className="space-y-6">
            <Card>
              <CardHeader>
                <CardTitle>Progreso de la Obra</CardTitle>
@@ -200,6 +227,45 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
                 </div>
              </CardContent>
            </Card>
+
+           {obra.estado === 'terminado' && (
+             <Card className="border-zinc-900 border-2">
+               <CardHeader className="flex flex-row items-center justify-between">
+                 <div>
+                    <CardTitle>Certificación Veri*factu (AEAT)</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">Cumplimiento legal de integridad y encadenamiento.</p>
+                 </div>
+                 {!invoice && (
+                   <Button onClick={handleEmitInvoice} disabled={emitting} className="bg-zinc-900 text-white">
+                     {emitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                     Emitir Factura Final
+                   </Button>
+                 )}
+               </CardHeader>
+               <CardContent>
+                 {invoice ? (
+                   <div className="flex items-start space-x-6 p-4 bg-zinc-50 rounded-lg">
+                      <div className="flex-1 space-y-2">
+                        <p className="text-sm"><strong>Nº Factura:</strong> {invoice.numero_factura}</p>
+                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Actual:</strong> {invoice.hash}</p>
+                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Anterior:</strong> {invoice.prev_hash}</p>
+                        <div className="flex items-center mt-4 text-green-700 text-xs font-bold">
+                          <CheckCircle2 className="mr-1 h-3 w-3" /> REGISTRADO EN AEAT 2026
+                        </div>
+                      </div>
+                      <div className="text-center space-y-2">
+                        <img src={invoice.qr_code} alt="QR Verifactu" className="h-24 w-24 border bg-white" />
+                        <p className="text-[10px] text-zinc-500">Escanea para verificar</p>
+                      </div>
+                   </div>
+                 ) : (
+                   <div className="text-center py-6 text-muted-foreground italic text-sm">
+                      La obra está terminada. Puede proceder a la emisión legal de la factura.
+                   </div>
+                 )}
+               </CardContent>
+             </Card>
+           )}
         </TabsContent>
       </Tabs>
     </div>
