@@ -1,0 +1,128 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase/client'
+import { Cliente } from '@/types/database'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
+import { Button } from '@/components/ui/button'
+import { Plus, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { ClienteForm } from '@/components/forms/ClienteForm'
+
+export default function ClientesPage() {
+  const [clientes, setClientes] = useState<Cliente[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+
+  const fetchClientes = async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (data) setClientes(data)
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    fetchClientes()
+  }, [])
+
+  const filteredClientes = clientes.filter(c =>
+    c.nombre_fiscal.toLowerCase().includes(search.toLowerCase()) ||
+    c.email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Clientes</h1>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Nuevo Cliente
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Añadir Nuevo Cliente</DialogTitle>
+            </DialogHeader>
+            <ClienteForm onSuccess={() => {
+              setIsDialogOpen(false)
+              fetchClientes()
+            }} />
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="flex items-center space-x-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar clientes..."
+            className="pl-8"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nombre Fiscal</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Teléfono</TableHead>
+              <TableHead>Fecha Alta</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                  Cargando clientes...
+                </TableCell>
+              </TableRow>
+            ) : filteredClientes.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                  No se encontraron clientes.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredClientes.map((cliente) => (
+                <TableRow key={cliente.id}>
+                  <TableCell className="font-medium">{cliente.nombre_fiscal}</TableCell>
+                  <TableCell>{cliente.email}</TableCell>
+                  <TableCell>{cliente.telefono || '-'}</TableCell>
+                  <TableCell>{new Date(cliente.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm">Ver Obras</Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}

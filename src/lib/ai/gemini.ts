@@ -1,0 +1,82 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+export async function extractMaterialsFromPDF(base64Data: string) {
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  const prompt = `
+    Analiza exhaustivamente este documento PDF de tarifas de construcción (puede tener múltiples páginas).
+    Extrae todos los productos/materiales disponibles y devuelve UN ÚNICO JSON estructurado (array de objetos).
+
+    Cada objeto debe tener:
+    - nombre_producto: Nombre descriptivo claro del material.
+    - unidad: Unidad de medida (m2, ml, kg, ud, saco, pack, etc.).
+    - precio_unidad: Valor numérico del precio (usa punto para decimales).
+    - categoria: (opcional) Categoría del material si se menciona.
+
+    REGLAS:
+    1. Si el documento tiene tablas que continúan en varias páginas, júntalas.
+    2. Ignora logotipos, publicidad, condiciones legales o textos irrelevantes.
+    3. Si hay varios precios para un mismo producto según cantidad, elige el precio base o unitario.
+    4. Devuelve SOLO el JSON, sin explicaciones adicionales.
+  `;
+
+  const result = await model.generateContent([
+    prompt,
+    {
+      inlineData: {
+        data: base64Data,
+        mimeType: "application/pdf"
+      }
+    }
+  ]);
+
+  const response = await result.response;
+  const text = response.text();
+
+  // Extract JSON from the response
+  const jsonMatch = text.match(/\[.*\]/s) || text.match(/\{.*\}/s);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.error("Failed to parse JSON from Gemini response", e);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+export async function generateTechnicalMemory(params: {
+  cliente: any;
+  obra: any;
+  materiales: any[];
+  plantillaBase?: string;
+}) {
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+  const prompt = `
+    Redacta una memoria técnica descriptiva profesional para una obra de construcción en seco.
+    Usa un tono técnico pero comercial. Incluye procesos de instalación basados en los materiales elegidos.
+
+    DATOS DEL CLIENTE:
+    ${JSON.stringify(params.cliente, null, 2)}
+
+    DATOS DE LA OBRA:
+    ${JSON.stringify(params.obra, null, 2)}
+
+    MATERIALES ELEGIDOS:
+    ${params.materiales.map(m => `- ${m.nombre} (${m.cantidad} ${m.unidad})`).join('\n')}
+
+    PLANTILLA BASE:
+    ${params.plantillaBase || 'Construcción en seco profesional'}
+
+    Instrucción: Genera el contenido en formato HTML limpio (solo etiquetas básicas como h1, h2, p, ul, li).
+  `;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  return response.text();
+}
