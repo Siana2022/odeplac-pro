@@ -77,12 +77,13 @@ ALTER TABLE obras ENABLE ROW LEVEL SECURITY;
 ALTER TABLE presupuestos_items ENABLE ROW LEVEL SECURITY;
 
 -- Basic Policies (for now, allow all to authenticated users)
-CREATE POLICY "Allow authenticated full access" ON clientes FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated full access" ON proveedores FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated full access" ON materiales FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated full access" ON plantillas_memoria FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated full access" ON obras FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Allow authenticated full access" ON presupuestos_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- Basic Policies (FOR DEMO: allow full access to public/anon)
+CREATE POLICY "Allow public full access" ON clientes FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access" ON proveedores FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access" ON materiales FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access" ON plantillas_memoria FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access" ON obras FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public full access" ON presupuestos_items FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- Create trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -110,6 +111,6 @@ CREATE TABLE IF NOT EXISTS facturas (
 );
 
 ALTER TABLE facturas ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated read" ON facturas FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated insert" ON facturas FOR INSERT TO authenticated WITH CHECK (true);
--- No UPDATE or DELETE policies means records are immutable via RLS for authenticated users.
+CREATE POLICY "Allow public read" ON facturas FOR SELECT TO anon USING (true);
+CREATE POLICY "Allow public insert" ON facturas FOR INSERT TO anon WITH CHECK (true);
+-- No UPDATE or DELETE policies means records are immutable via RLS.
