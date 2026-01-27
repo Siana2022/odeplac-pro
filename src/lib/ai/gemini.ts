@@ -1,8 +1,28 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Cliente, Obra } from "@/types/database";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+let genAIInstance: GoogleGenerativeAI | null = null;
+
+const getGenAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Missing GEMINI_API_KEY environment variable');
+    }
+    console.warn('GEMINI_API_KEY is missing.');
+    return null;
+  }
+
+  if (!genAIInstance) {
+    genAIInstance = new GoogleGenerativeAI(apiKey);
+  }
+  return genAIInstance;
+};
 
 export async function extractMaterialsFromPDF(base64Data: string) {
+  const genAI = getGenAI();
+  if (!genAI) throw new Error('Gemini AI not initialized');
+
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const prompt = `
@@ -50,11 +70,14 @@ export async function extractMaterialsFromPDF(base64Data: string) {
 }
 
 export async function generateTechnicalMemory(params: {
-  cliente: any;
-  obra: any;
-  materiales: any[];
+  cliente: Cliente;
+  obra: Obra;
+  materiales: { nombre: string; unidad: string; cantidad: number }[];
   plantillaBase?: string;
 }) {
+  const genAI = getGenAI();
+  if (!genAI) throw new Error('Gemini AI not initialized');
+
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
   const prompt = `

@@ -1,9 +1,31 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendInstance: Resend | null = null;
+
+const getResend = () => {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Missing RESEND_API_KEY environment variable');
+    }
+    console.warn('RESEND_API_KEY is missing. Email sending will fail.');
+    return null;
+  }
+
+  if (!resendInstance) {
+    resendInstance = new Resend(apiKey);
+  }
+  return resendInstance;
+};
 
 export async function sendBudgetEmail(email: string, clientName: string, portalUrl: string) {
   try {
+    const resend = getResend();
+
+    if (!resend) {
+      return { success: false, error: 'Resend not initialized due to missing API key' };
+    }
+
     const { data, error } = await resend.emails.send({
       from: 'ODEPLAC PRO <onboarding@resend.dev>',
       to: [email],
