@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 
 const clienteSchema = z.object({
-  nombre_fiscal: z.string().min(2, 'El nombre es obligatorio'),
+  nombre: z.string().min(2, 'El nombre es obligatorio'),
   email: z.string().email('Email inválido'),
   telefono: z.string().optional(),
   direccion: z.string().optional(),
@@ -42,9 +42,9 @@ export function ClienteForm({ onSuccess }: { onSuccess: () => void }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="nombre_fiscal">Nombre Fiscal</Label>
-        <Input id="nombre_fiscal" {...register('nombre_fiscal')} />
-        {errors.nombre_fiscal && <p className="text-xs text-red-500">{errors.nombre_fiscal.message}</p>}
+        <Label htmlFor="nombre">Nombre</Label>
+        <Input id="nombre" {...register('nombre')} />
+        {errors.nombre && <p className="text-xs text-red-500">{errors.nombre.message}</p>}
       </div>
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>

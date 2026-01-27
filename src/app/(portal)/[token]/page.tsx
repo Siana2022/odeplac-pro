@@ -87,7 +87,7 @@ export default function ClientPortalPage({ params }: { params: Promise<{ token: 
       <div className="max-w-4xl mx-auto space-y-8">
         <header className="space-y-2">
           <h1 className="text-3xl font-bold">Portal del Cliente</h1>
-          <p className="text-muted-foreground">Bienvenido, {cliente.nombre_fiscal}</p>
+          <p className="text-muted-foreground">Bienvenido, {cliente.nombre}</p>
         </header>
 
         <div className="grid gap-6">

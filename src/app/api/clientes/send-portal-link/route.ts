@@ -19,7 +19,7 @@ export async function POST(req: Request) {
 
     const portalUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/${cliente.token_acceso_portal}`
 
-    const result = await sendBudgetEmail(cliente.email, cliente.nombre_fiscal, portalUrl)
+    const result = await sendBudgetEmail(cliente.email, cliente.nombre, portalUrl)
 
     if (!result.success) {
       return NextResponse.json({ error: 'Error al enviar email' }, { status: 500 })

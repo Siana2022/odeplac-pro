@@ -5,7 +5,7 @@ CREATE TYPE estado_obra AS ENUM ('lead', 'presupuesto', 'curso', 'terminado');
 -- Tables
 CREATE TABLE IF NOT EXISTS clientes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nombre_fiscal TEXT NOT NULL,
+    nombre TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     telefono TEXT,
     direccion TEXT,

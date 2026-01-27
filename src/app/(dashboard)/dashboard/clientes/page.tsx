@@ -68,7 +68,7 @@ export default function ClientesPage() {
   }
 
   const filteredClientes = clientes.filter(c =>
-    c.nombre_fiscal.toLowerCase().includes(search.toLowerCase()) ||
+    c.nombre.toLowerCase().includes(search.toLowerCase()) ||
     c.email.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -133,7 +133,7 @@ export default function ClientesPage() {
             ) : (
               filteredClientes.map((cliente) => (
                 <TableRow key={cliente.id}>
-                  <TableCell className="font-medium">{cliente.nombre_fiscal}</TableCell>
+                  <TableCell className="font-medium">{cliente.nombre}</TableCell>
                   <TableCell>{cliente.email}</TableCell>
                   <TableCell>{cliente.telefono || '-'}</TableCell>
                   <TableCell>{new Date(cliente.created_at).toLocaleDateString()}</TableCell>

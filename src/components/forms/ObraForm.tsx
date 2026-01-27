@@ -33,8 +33,8 @@ export function ObraForm({ onSuccess }: { onSuccess: () => void }) {
 
   useEffect(() => {
     const fetchClientes = async () => {
-      const { data } = await supabase.from('clientes').select('id, nombre_fiscal')
-      if (data) setClientes(data)
+      const { data } = await supabase.from('clientes').select('id, nombre')
+      if (data) setClientes(data as any)
     }
     fetchClientes()
   }, [])
@@ -63,7 +63,7 @@ export function ObraForm({ onSuccess }: { onSuccess: () => void }) {
           <SelectContent>
             {clientes.map(cliente => (
               <SelectItem key={cliente.id} value={cliente.id}>
-                {cliente.nombre_fiscal}
+                {cliente.nombre}
               </SelectItem>
             ))}
           </SelectContent>

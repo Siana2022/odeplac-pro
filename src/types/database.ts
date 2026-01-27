@@ -3,7 +3,7 @@ export type EstadoObra = 'lead' | 'presupuesto' | 'curso' | 'terminado';
 
 export interface Cliente {
   id: string;
-  nombre_fiscal: string;
+  nombre: string;
   email: string;
   telefono?: string;
   direccion?: string;

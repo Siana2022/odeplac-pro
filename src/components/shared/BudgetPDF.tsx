@@ -166,7 +166,7 @@ export const BudgetPDF = ({ obra, items }: {
         <View style={styles.infoGrid}>
           <View style={styles.infoCol}>
             <Text style={styles.label}>CLIENTE</Text>
-            <Text style={[styles.value, { fontWeight: 'bold' }]}>{obra.clientes?.nombre_fiscal}</Text>
+            <Text style={[styles.value, { fontWeight: 'bold' }]}>{obra.clientes?.nombre}</Text>
             <Text style={styles.value}>{obra.clientes?.direccion || 'N/A'}</Text>
             <Text style={styles.value}>{obra.clientes?.email}</Text>
           </View>
