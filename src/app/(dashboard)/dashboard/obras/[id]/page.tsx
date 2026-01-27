@@ -29,22 +29,23 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
   const [invoice, setInvoice] = useState<Record<string, unknown> | null>(null)
   const [emitting, setEmitting] = useState(false)
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      const { data: obraData } = await supabase.from('obras').select('*, clientes(*)').eq('id', id).single()
-      if (obraData) {
-        setObra(obraData)
-      }
-
-      const { data: itemsData } = await supabase.from('presupuestos_items').select('*, materiales(*)').eq('obra_id', id)
-      if (itemsData) setItems(itemsData as (PresupuestoItem & { materiales: Material })[])
-
-      const { data: invoiceData } = await supabase.from('facturas').select('*').eq('obra_id', id).single()
-      if (invoiceData) setInvoice(invoiceData as Record<string, unknown>)
-
-      setLoading(false)
+  const fetchData = async () => {
+    setLoading(true)
+    const { data: obraData } = await supabase.from('obras').select('*, clientes(*)').eq('id', id).single()
+    if (obraData) {
+      setObra(obraData)
     }
+
+    const { data: itemsData } = await supabase.from('presupuestos_items').select('*, materiales(*)').eq('obra_id', id)
+    if (itemsData) setItems(itemsData as (PresupuestoItem & { materiales: Material })[])
+
+    const { data: invoiceData } = await supabase.from('facturas').select('*').eq('obra_id', id).single()
+    if (invoiceData) setInvoice(invoiceData as Record<string, unknown>)
+
+    setLoading(false)
+  }
+
+  useEffect(() => {
     fetchData()
   }, [id])
 

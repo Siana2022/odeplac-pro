@@ -22,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { ClienteForm } from '@/components/forms/ClienteForm'
+import { toast } from 'sonner'
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
