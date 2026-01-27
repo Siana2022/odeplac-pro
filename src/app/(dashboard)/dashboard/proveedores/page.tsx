@@ -14,10 +14,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { ProveedorForm } from '@/components/forms/ProveedorForm'
 
 export default function ProveedoresPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   useEffect(() => {
     const fetchProveedores = async () => {
@@ -29,13 +38,33 @@ export default function ProveedoresPage() {
     fetchProveedores()
   }, [])
 
+  const handleRefresh = async () => {
+    setLoading(true)
+    const { data } = await supabase.from('proveedores').select('*').order('nombre')
+    if (data) setProveedores(data as Proveedor[])
+    setLoading(false)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Proveedores</h1>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" /> Nuevo Proveedor
-        </Button>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Nuevo Proveedor
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Añadir Nuevo Proveedor</DialogTitle>
+            </DialogHeader>
+            <ProveedorForm onSuccess={() => {
+              setIsDialogOpen(false)
+              handleRefresh()
+            }} />
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="rounded-md border">

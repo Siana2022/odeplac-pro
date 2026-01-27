@@ -134,7 +134,7 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
                       obra_id: id,
                       material_id: material.id,
                       cantidad: 1,
-                      precio_aplicado: material.precio_coste,
+                      precio_aplicado: material.precio_unitario,
                       margen_beneficio: 20
                     })
                     if (error) toast.error(error.message)

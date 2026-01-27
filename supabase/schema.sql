@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS clientes (
     telefono TEXT,
     direccion TEXT,
     token_acceso_portal TEXT UNIQUE NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
+    usuario_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -17,9 +18,14 @@ CREATE TABLE IF NOT EXISTS clientes (
 CREATE TABLE IF NOT EXISTS proveedores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre TEXT NOT NULL,
-    metodo_ingesta metodo_ingesta NOT NULL,
+    email TEXT,
+    telefono TEXT,
+    direccion TEXT,
+    categoria TEXT,
+    metodo_ingesta metodo_ingesta NOT NULL DEFAULT 'pdf',
     config_api JSONB DEFAULT '{}',
     last_sync TIMESTAMP WITH TIME ZONE,
+    usuario_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -27,11 +33,14 @@ CREATE TABLE IF NOT EXISTS materiales (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     proveedor_id UUID REFERENCES proveedores(id) ON DELETE CASCADE,
     nombre TEXT NOT NULL,
-    unidad TEXT NOT NULL, -- m2, kg, ud
-    precio_coste DECIMAL(12, 2) NOT NULL,
+    descripcion TEXT,
+    unidad TEXT NOT NULL DEFAULT 'ud', -- m2, kg, ud
+    precio_unitario DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    stock DECIMAL(12, 2) DEFAULT 0,
     categoria TEXT,
     tags TEXT[],
     metadata JSONB DEFAULT '{}',
+    usuario_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -8,6 +8,7 @@ export interface Cliente {
   telefono?: string;
   direccion?: string;
   token_acceso_portal: string;
+  usuario_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -15,9 +16,14 @@ export interface Cliente {
 export interface Proveedor {
   id: string;
   nombre: string;
+  email?: string;
+  telefono?: string;
+  direccion?: string;
+  categoria?: string;
   metodo_ingesta: MetodoIngesta;
   config_api: Record<string, unknown>;
   last_sync?: string;
+  usuario_id?: string;
   created_at: string;
 }
 
@@ -25,11 +31,14 @@ export interface Material {
   id: string;
   proveedor_id: string;
   nombre: string;
+  descripcion?: string;
   unidad: string;
-  precio_coste: number;
+  precio_unitario: number;
+  stock?: number;
   categoria?: string;
   tags?: string[];
   metadata: Record<string, unknown>;
+  usuario_id?: string;
   created_at: string;
   updated_at: string;
 }

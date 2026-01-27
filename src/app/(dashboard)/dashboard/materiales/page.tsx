@@ -22,12 +22,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { toast } from 'sonner'
+import { MaterialForm } from '@/components/forms/MaterialForm'
 
 export default function MaterialesPage() {
   const [materiales, setMateriales] = useState<Material[]>([])
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [search, setSearch] = useState('')
 
   const fetchMateriales = async () => {
@@ -102,9 +104,22 @@ export default function MaterialesPage() {
               Importar PDF
             </Button>
           </div>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" /> Nuevo Material
-          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" /> Nuevo Material
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Añadir Nuevo Material</DialogTitle>
+              </DialogHeader>
+              <MaterialForm onSuccess={() => {
+                setIsDialogOpen(false)
+                fetchMateriales()
+              }} />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -127,20 +142,21 @@ export default function MaterialesPage() {
               <TableHead>Nombre</TableHead>
               <TableHead>Categoría</TableHead>
               <TableHead>Unidad</TableHead>
-              <TableHead>Precio Coste</TableHead>
+              <TableHead>Precio Unit.</TableHead>
+              <TableHead>Stock</TableHead>
               <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                   Cargando materiales...
                 </TableCell>
               </TableRow>
             ) : filteredMateriales.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                   No se encontraron materiales.
                 </TableCell>
               </TableRow>
@@ -150,7 +166,8 @@ export default function MaterialesPage() {
                   <TableCell className="font-medium">{material.nombre}</TableCell>
                   <TableCell>{material.categoria || '-'}</TableCell>
                   <TableCell>{material.unidad}</TableCell>
-                  <TableCell>€{material.precio_coste.toLocaleString()}</TableCell>
+                  <TableCell>€{material.precio_unitario?.toLocaleString()}</TableCell>
+                  <TableCell>{material.stock || 0}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm">Editar</Button>
                   </TableCell>

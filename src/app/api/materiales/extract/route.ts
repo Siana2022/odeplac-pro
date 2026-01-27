@@ -24,9 +24,10 @@ export async function POST(req: Request) {
       .map((m: any) => ({
         nombre: m.nombre_producto,
         unidad: m.unidad || 'ud',
-        precio_coste: parseFloat(m.precio_unidad),
+        precio_unitario: parseFloat(m.precio_unidad),
         categoria: m.categoria || null,
         proveedor_id: proveedor_id || null,
+        usuario_id: '05971cd1-57e1-4d97-8469-4dc104f6e691',
         metadata: m
       }))
 

@@ -61,7 +61,7 @@ export function MaterialSelector({ onSelect }: { onSelect: (material: Material) 
                 <TableRow key={m.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => onSelect(m)}>
                   <TableCell className="py-4">
                     <p className="font-bold text-sm">{m.nombre}</p>
-                    <p className="text-xs text-zinc-500 uppercase">{m.unidad} | €{m.precio_coste.toLocaleString()}</p>
+                    <p className="text-xs text-zinc-500 uppercase">{m.unidad} | €{m.precio_unitario?.toLocaleString()}</p>
                   </TableCell>
                   <TableCell className="text-right py-4">
                     <Button size="icon" variant="secondary" className="h-10 w-10">
