@@ -27,3 +27,9 @@ export async function createClient() {
     }
   )
 }
+
+export async function getDemoUserId() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
+  return data.user?.id || '05971cd1-57e1-4d97-8469-4dc104f6e691'; // Fallback for Demo
+}

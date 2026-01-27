@@ -1,9 +1,10 @@
 import Link from 'next/link'
-import { LayoutDashboard, Users, Package, Factory, Settings, Briefcase } from 'lucide-react'
+import { LayoutDashboard, Users, Package, Factory, Settings, Briefcase, Sparkles } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline (Obras)', href: '/dashboard/obras', icon: Briefcase },
+  { name: 'Asistente IA', href: '/dashboard/ai', icon: Sparkles },
   { name: 'Clientes', href: '/dashboard/clientes', icon: Users },
   { name: 'Materiales', href: '/dashboard/materiales', icon: Package },
   { name: 'Proveedores', href: '/dashboard/proveedores', icon: Factory },
