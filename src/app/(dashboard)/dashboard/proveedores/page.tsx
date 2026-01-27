@@ -19,14 +19,13 @@ export default function ProveedoresPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchProveedores = async () => {
-    setLoading(true)
-    const { data } = await supabase.from('proveedores').select('*').order('nombre')
-    if (data) setProveedores(data)
-    setLoading(false)
-  }
-
   useEffect(() => {
+    const fetchProveedores = async () => {
+      setLoading(true)
+      const { data } = await supabase.from('proveedores').select('*').order('nombre')
+      if (data) setProveedores(data as Proveedor[])
+      setLoading(false)
+    }
     fetchProveedores()
   }, [])
 

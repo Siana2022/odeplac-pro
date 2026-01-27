@@ -35,20 +35,30 @@ export default function ObrasPage() {
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  const fetchObras = async () => {
+  useEffect(() => {
+    const fetchObras = async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('obras')
+        .select('*, clientes(*)')
+        .order('updated_at', { ascending: false })
+
+      if (data) setObras(data as (Obra & { clientes: Cliente | null })[])
+      setLoading(false)
+    }
+    fetchObras()
+  }, [])
+
+  const handleRefresh = async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('obras')
       .select('*, clientes(*)')
       .order('updated_at', { ascending: false })
 
-    if (data) setObras(data)
+    if (data) setObras(data as (Obra & { clientes: Cliente | null })[])
     setLoading(false)
   }
-
-  useEffect(() => {
-    fetchObras()
-  }, [])
 
   return (
     <div className="space-y-6">
@@ -66,7 +76,7 @@ export default function ObrasPage() {
             </DialogHeader>
             <ObraForm onSuccess={() => {
               setIsDialogOpen(false)
-              fetchObras()
+              handleRefresh()
             }} />
           </DialogContent>
         </Dialog>

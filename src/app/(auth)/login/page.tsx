@@ -17,20 +17,41 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (error) {
-      toast.error(error.message)
-    } else {
-      toast.success('Sesión iniciada correctamente')
-      router.push('/dashboard')
+      if (error) {
+        toast.error(error.message)
+        setLoading(false)
+        return
+      }
+
+      // Check if user and session exist before proceeding
+      if (data?.user?.id) {
+        console.log('Login successful for user:', data.user.id)
+
+        // Optional: The user mentioned fetching a 'Profile' record.
+        // We'll add a check here to ensure the session is fully established.
+        const { data: sessionData } = await supabase.auth.getSession()
+        if (!sessionData.session) {
+          throw new Error('No se pudo establecer la sesión')
+        }
+
+        toast.success('Sesión iniciada correctamente')
+        router.push('/dashboard')
+      } else {
+        throw new Error('No se recibió información del usuario')
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Error inesperado al iniciar sesión')
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
