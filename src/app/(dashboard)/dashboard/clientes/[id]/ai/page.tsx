@@ -3,7 +3,6 @@
 import { useEffect, useState, use, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { Sparkles, Send, ChevronLeft, Loader2, Bot, User } from "lucide-react"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase/client'
 import { Cliente } from '@/types/database'
@@ -50,6 +49,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   }, [messages])
 
   if (fetchingClient) return <div className="p-8 text-center text-muted-foreground">Cargando contexto del cliente...</div>
+
+  console.log('Input actual:', input)
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
@@ -99,18 +100,19 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
           )}
         </div>
 
-        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-10">
+        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-[999]">
           <form
             onSubmit={handleSubmit}
             className="flex space-x-2"
           >
-            <Input
+            <input
               placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
-              className="flex-1"
+              className="flex-1 h-10 px-3 rounded-md border border-input bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
               value={input || ''}
               onChange={handleInputChange}
               autoFocus
               name="prompt"
+              autoComplete="off"
             />
             <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()}>
               <Send className="h-4 w-4" />
