@@ -89,7 +89,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
               </div>
             </div>
           ))}
-          {isLoading && messages[messages.length-1].role === 'user' && (
+          {isLoading && (
             <div className="flex justify-start">
               <div className="flex items-center space-x-2 text-zinc-500 bg-white border rounded-lg p-3 px-4 shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -99,7 +99,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
           )}
         </div>
 
-        <div className="p-4 bg-white dark:bg-zinc-950 border-t">
+        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-10">
           <form
             onSubmit={handleSubmit}
             className="flex space-x-2"
@@ -107,11 +107,12 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
             <Input
               placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
               className="flex-1"
-              value={input || ''}
+              value={input}
               onChange={handleInputChange}
-              disabled={isLoading}
+              autoFocus
+              name="prompt"
             />
-            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()}>
+            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
               <Send className="h-4 w-4" />
             </Button>
           </form>
