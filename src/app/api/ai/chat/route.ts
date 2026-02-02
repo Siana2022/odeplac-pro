@@ -1,13 +1,23 @@
-import { google } from '@ai-sdk/google';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
 export const maxDuration = 30;
 
+// Configura el proveedor de Google con la clave de API disponible
+const googleProvider = createGoogleGenerativeAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
+});
+
 export async function POST(req: Request) {
   try {
     const { clienteId, messages } = await req.json();
+
+    if (!clienteId) {
+        return new Response('clienteId is required', { status: 400 });
+    }
+
     const supabase = await createClient();
 
     // Fetch client
@@ -33,7 +43,7 @@ export async function POST(req: Request) {
     });
 
     const result = streamText({
-      model: google('gemini-1.5-flash'),
+      model: googleProvider('gemini-1.5-flash'),
       messages,
       system: systemPrompt,
     });

@@ -119,7 +119,7 @@ export function getSystemInstruction(context: { cliente: Cliente, obras: unknown
     ${JSON.stringify(context.obras, null, 2)}
 
     CATÁLOGO DE MATERIALES DISPONIBLES:
-    ${JSON.stringify(context.materialesDisponibles.map(m => ({ nombre: m.nombre, precio: m.precio_unitario, unidad: m.unidad })), null, 2)}
+    ${JSON.stringify((context.materialesDisponibles || []).map((m: any) => ({ nombre: m?.nombre, precio: m?.precio_unitario, unidad: m?.unidad })), null, 2)}
 
     INSTRUCCIONES:
     1. Responde de forma profesional, técnica y concisa.

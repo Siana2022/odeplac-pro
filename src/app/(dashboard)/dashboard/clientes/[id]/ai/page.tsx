@@ -15,11 +15,14 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [fetchingClient, setFetchingClient] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
     api: '/api/ai/chat',
     initialInput: '',
     body: {
       clienteId: id
+    },
+    onError: (err) => {
+      console.error('Chat Error:', err)
     },
     initialMessages: [
       {
@@ -69,6 +72,11 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
       <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-zinc-50 dark:bg-zinc-900">
         <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 scroll-smooth">
+          {error && (
+            <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-100 rounded-md">
+              Error: {error.message}. Verifica la conexión o la clave de API.
+            </div>
+          )}
           {messages.map((m) => (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`flex space-x-3 max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse space-x-reverse' : 'flex-row'}`}>
