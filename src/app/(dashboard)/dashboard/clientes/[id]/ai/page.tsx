@@ -107,12 +107,12 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
             <Input
               placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
               className="flex-1"
-              value={input}
+              value={input || ''}
               onChange={handleInputChange}
               autoFocus
               name="prompt"
             />
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()}>
               <Send className="h-4 w-4" />
             </Button>
           </form>

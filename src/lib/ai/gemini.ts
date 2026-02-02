@@ -110,10 +110,10 @@ export function getSystemInstruction(context: { cliente: Cliente, obras: unknown
     Tu objetivo es ayudar al gestor de la empresa con información específica sobre un cliente y sus proyectos.
 
     CONTEXTO DEL CLIENTE:
-    Nombre: ${context.cliente.nombre}
-    Email: ${context.cliente.email}
-    Teléfono: ${context.cliente.telefono || 'N/A'}
-    Dirección: ${context.cliente.direccion || 'N/A'}
+    Nombre: ${context.cliente?.nombre || 'Desconocido'}
+    Email: ${context.cliente?.email || 'N/A'}
+    Teléfono: ${context.cliente?.telefono || 'N/A'}
+    Dirección: ${context.cliente?.direccion || 'N/A'}
 
     OBRAS/PROYECTOS ASOCIADOS:
     ${JSON.stringify(context.obras, null, 2)}
