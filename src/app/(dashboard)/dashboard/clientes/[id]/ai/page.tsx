@@ -14,7 +14,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [fetchingClient, setFetchingClient] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
+  const { messages, input = '', handleInputChange, handleSubmit, isLoading, error } = useChat({
     api: '/api/ai/chat',
     initialInput: '',
     body: {
