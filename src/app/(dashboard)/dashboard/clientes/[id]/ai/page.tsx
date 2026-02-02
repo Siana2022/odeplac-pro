@@ -15,7 +15,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [chatInput, setChatInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { messages, append, status, error } = useChat({
+  const chat = useChat({
     api: '/api/ai/chat',
     body: {
       clienteId: id
@@ -42,6 +42,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
+  const { messages = [], error, status } = chat as any
   const isLoading = status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
@@ -57,10 +58,18 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     const val = (chatInput || '').trim()
     if (!val || isLoading) return
 
-    append({
-      role: 'user',
-      content: val
-    })
+    const c = chat as any
+    const appendFn = c.append
+    const sendFn = c.sendMessage
+
+    console.log('¿Función de envío lista?:', typeof (appendFn || sendFn))
+
+    if (typeof appendFn === 'function') {
+      appendFn({ role: 'user', content: val })
+    } else if (typeof sendFn === 'function') {
+      sendFn({ text: val })
+    }
+
     setChatInput('')
   }
 
