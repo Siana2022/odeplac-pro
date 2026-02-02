@@ -17,6 +17,10 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
   const chat = useChat({
     api: '/api/ai/chat',
+    fetch: async (url, options) => {
+      // Forzar la ruta correcta para evitar el 405 en /api/chat
+      return fetch('/api/ai/chat', options);
+    },
     body: {
       clienteId: id
     },
