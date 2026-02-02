@@ -17,6 +17,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
   const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
     api: '/api/ai/chat',
+    initialInput: '',
     body: {
       clienteId: id
     },
@@ -96,13 +97,13 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
             className="flex space-x-2"
           >
             <Input
-              placeholder={`Pregunta sobre ${cliente?.nombre} o materiales...`}
+              placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
               className="flex-1"
-              value={input}
+              value={input || ''}
               onChange={handleInputChange}
               disabled={isLoading}
             />
-            <Button type="submit" size="icon" disabled={isLoading || !input.trim()}>
+            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()}>
               <Send className="h-4 w-4" />
             </Button>
           </form>
