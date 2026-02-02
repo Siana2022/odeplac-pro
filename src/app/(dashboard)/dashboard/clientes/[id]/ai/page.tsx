@@ -100,21 +100,24 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
           )}
         </div>
 
-        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-[999]">
+        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-[9999] pointer-events-auto">
           <form
             onSubmit={handleSubmit}
             className="flex space-x-2"
           >
             <input
               placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
-              className="flex-1 h-10 px-3 rounded-md border border-input bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500"
+              className="flex-1 h-10 px-3 rounded-md border border-input bg-white text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 relative z-[9999] pointer-events-auto"
               value={input || ''}
-              onChange={handleInputChange}
+              onChange={(e) => {
+                console.log('Tecleando:', e.target.value);
+                handleInputChange(e);
+              }}
               autoFocus
               name="prompt"
               autoComplete="off"
             />
-            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()}>
+            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()} className="relative z-[9999]">
               <Send className="h-4 w-4" />
             </Button>
           </form>
