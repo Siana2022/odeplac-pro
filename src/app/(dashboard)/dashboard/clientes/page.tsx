@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog"
 import { ClienteForm } from '@/components/forms/ClienteForm'
 import { toast } from 'sonner'
+import Link from 'next/link'
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -33,7 +34,7 @@ export default function ClientesPage() {
 
   const fetchClientes = async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('clientes')
       .select('*')
       .order('created_at', { ascending: false })
@@ -60,7 +61,7 @@ export default function ClientesPage() {
       } else {
         toast.error(data.error)
       }
-    } catch (e) {
+    } catch (_e) {
       toast.error('Error al enviar email')
     } finally {
       setSendingEmail(null)
@@ -151,7 +152,9 @@ export default function ClientesPage() {
                       )}
                       Enviar Portal
                     </Button>
-                    <Button variant="ghost" size="sm">Ver Obras</Button>
+                    <Link href={`/dashboard/clientes/${cliente.id}`}>
+                      <Button variant="ghost" size="sm">Ver Detalle</Button>
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))

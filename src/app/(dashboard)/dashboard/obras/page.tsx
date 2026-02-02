@@ -22,6 +22,7 @@ import {
 import { ObraForm } from '@/components/forms/ObraForm'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import Link from 'next/link'
 
 const states: { label: string; value: EstadoObra; color: string }[] = [
   { label: 'Leads', value: 'lead', color: 'bg-slate-100' },
@@ -38,7 +39,7 @@ const mockObras = [
 ]
 
 export default function ObrasPage() {
-  const [obras, setObras] = useState<(any)[]>([])
+  const [obras, setObras] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
@@ -56,7 +57,7 @@ export default function ObrasPage() {
         } else {
           setObras(mockObras)
         }
-      } catch (e) {
+      } catch (_e) {
         setObras(mockObras)
       }
       setLoading(false)
@@ -111,10 +112,11 @@ export default function ObrasPage() {
               {loading ? (
                  <div className="text-center py-10 text-xs text-zinc-500">Cargando...</div>
               ) : (
-                obras
+                (obras as any[])
                   .filter(o => o.estado === state.value)
                   .map(obra => (
-                    <Card key={obra.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                    <Link key={obra.id} href={`/dashboard/obras/${obra.id}`}>
+                    <Card className="cursor-pointer hover:shadow-md transition-shadow">
                       <CardHeader className="p-3 pb-0">
                         <CardTitle className="text-sm font-bold">{obra.titulo}</CardTitle>
                         <CardDescription className="text-xs flex items-center">
@@ -140,6 +142,7 @@ export default function ObrasPage() {
                         </div>
                       </CardContent>
                     </Card>
+                    </Link>
                   ))
               )}
             </div>

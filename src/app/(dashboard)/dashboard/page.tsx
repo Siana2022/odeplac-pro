@@ -1,9 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Briefcase, Users, Package, TrendingUp, Sparkles, MessageSquare } from "lucide-react"
+import { Briefcase, Users, Package, TrendingUp } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
 
 const mockObras = [
   { id: '1', titulo: 'Reforma Integral Loft Chueca', cliente: 'Inversiones Madrileñas S.L.', estado: 'curso', total: 45200 },
@@ -23,12 +22,6 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-zinc-900">Dashboard General</h1>
-        <Link href="/dashboard/ai">
-          <Button className="bg-zinc-900 text-white flex items-center space-x-2">
-            <Sparkles className="h-4 w-4" />
-            <span>Asistente IA</span>
-          </Button>
-        </Link>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -138,14 +131,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* AI Assistant Overlay (Mocked Visibility) */}
-      <div className="fixed bottom-6 right-6 z-50">
-        <Link href="/dashboard/ai">
-          <Button className="h-14 w-14 rounded-full shadow-2xl bg-zinc-900 hover:bg-zinc-800 text-white">
-            <MessageSquare className="h-6 w-6" />
-          </Button>
-        </Link>
-      </div>
     </div>
   )
 }
