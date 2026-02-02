@@ -42,7 +42,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
-  const { messages, isLoading, error } = chat as any
+  const { messages = [], error, status, sendMessage } = chat as any
+  const isLoading = status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -57,11 +58,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     const val = (chatInput || '').trim()
     if (!val || isLoading) return
 
-    const c = chat as any
-    if (c.append) {
-      c.append({ role: 'user', content: val })
-    } else if (c.sendMessage) {
-      c.sendMessage(val)
+    if (sendMessage) {
+      sendMessage({ text: val })
     }
     setChatInput('')
   }
@@ -99,7 +97,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
                   {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div className={`p-4 rounded-lg shadow-sm border ${m.role === 'user' ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}>
-                  <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+                  <div className="text-sm whitespace-pre-wrap">{m.content || (m.parts && m.parts.map((p:any) => p.text).join('')) || ''}</div>
                 </div>
               </div>
             </div>
