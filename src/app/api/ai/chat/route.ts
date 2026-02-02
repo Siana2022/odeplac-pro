@@ -1,29 +1,50 @@
-import { NextResponse } from 'next/server'
-import { chatWithClientContext } from '@/lib/ai/gemini'
-import { createClient } from '@/lib/supabase/server'
+import { google } from '@ai-sdk/google';
+import { streamText } from 'ai';
+import { createClient } from '@/lib/supabase/server';
+import { getSystemInstruction } from '@/lib/ai/gemini';
+
+export const maxDuration = 30;
 
 export async function POST(req: Request) {
   try {
-    const { clienteId, messages } = await req.json()
-    const supabase = await createClient()
+    const { clienteId, messages } = await req.json();
+    const supabase = await createClient();
 
-    // Fetch client and their projects with items
-    const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single()
-    if (!cliente) return NextResponse.json({ error: 'Cliente not found' }, { status: 404 })
+    // Fetch client
+    const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
+    if (!cliente) return new Response('Cliente not found', { status: 404 });
 
+    // Fetch projects with their items and materials
     const { data: obras } = await supabase
       .from('obras')
       .select('*, presupuestos_items(*, materiales(*))')
-      .eq('cliente_id', clienteId)
+      .eq('cliente_id', clienteId);
 
-    const reply = await chatWithClientContext(messages, {
+    // Fetch available materials catalog
+    const { data: materialesDisponibles } = await supabase
+      .from('materiales')
+      .select('nombre, precio_unitario, unidad')
+      .limit(100);
+
+    const systemPrompt = getSystemInstruction({
       cliente,
-      obras: obras || []
-    })
+      obras: obras || [],
+      materialesDisponibles: materialesDisponibles || []
+    });
 
-    return NextResponse.json({ reply })
+    const result = streamText({
+      model: google('gemini-1.5-flash'),
+      messages,
+      system: systemPrompt,
+    });
+
+    return result.toDataStreamResponse();
   } catch (error) {
-    console.error('AI Chat Error:', error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 })
+    console.error('AI Chat Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

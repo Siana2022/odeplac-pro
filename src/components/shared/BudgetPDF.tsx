@@ -137,12 +137,25 @@ const stripHtml = (html: string) => {
   return html.replace(/<[^>]*>?/gm, '\n').replace(/\n\s*\n/g, '\n').trim();
 };
 
-export const BudgetPDF = ({ obra, items }: {
+export const BudgetPDF = ({ obra, items, config = {
+  companyName: 'ODEPLAC PRO',
+  companyAddress: 'Calle Falsa 123, Madrid',
+  companyEmail: 'contacto@odeplac.com',
+  companyWeb: 'www.odeplac.com',
+  taxRate: 21
+} }: {
   obra: Obra & { clientes?: Cliente },
-  items: (PresupuestoItem & { materiales: Material })[]
+  items: (PresupuestoItem & { materiales: Material })[],
+  config?: {
+    companyName: string;
+    companyAddress: string;
+    companyEmail: string;
+    companyWeb: string;
+    taxRate: number;
+  }
 }) => {
   const subtotal = items.reduce((acc, item) => acc + (item.cantidad * item.precio_aplicado), 0);
-  const tax = subtotal * 0.21;
+  const tax = subtotal * (config.taxRate / 100);
   const total = subtotal + tax;
 
   return (
@@ -151,8 +164,8 @@ export const BudgetPDF = ({ obra, items }: {
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoSection}>
-            <Text style={styles.brand}>ODEPLAC PRO</Text>
-            <Text style={styles.brandSub}>Construcciones en Seco S.L.</Text>
+            <Text style={styles.brand}>{config.companyName}</Text>
+            <Text style={styles.brandSub}>Construcción y Reformas Profesionales</Text>
           </View>
           <View style={styles.invoiceInfo}>
             <Text style={styles.title}>PRESUPUESTO</Text>
@@ -204,7 +217,7 @@ export const BudgetPDF = ({ obra, items }: {
               <Text>€{subtotal.toLocaleString()}</Text>
             </View>
             <View style={styles.totalRow}>
-              <Text>IVA (21%):</Text>
+              <Text>IVA ({config.taxRate}%):</Text>
               <Text>€{tax.toLocaleString()}</Text>
             </View>
             <View style={[styles.totalRow, styles.grandTotal]}>
@@ -226,7 +239,7 @@ export const BudgetPDF = ({ obra, items }: {
 
         {/* Footer */}
         <View style={styles.footer} fixed>
-          <Text>ODEPLAC Construcciones en Seco S.L. | Calle Falsa 123, Madrid | www.odeplac.com</Text>
+          <Text>{config.companyName} | {config.companyAddress} | {config.companyWeb}</Text>
           <Text render={({ pageNumber, totalPages }) => (
             `Página ${pageNumber} de ${totalPages}`
           )} />

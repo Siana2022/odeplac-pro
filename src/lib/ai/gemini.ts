@@ -104,15 +104,10 @@ export async function generateTechnicalMemory(params: {
   return response.text();
 }
 
-export async function chatWithClientContext(messages: { role: string, content: string }[], context: { cliente: Cliente, obras: unknown[] }) {
-  const genAI = getGenAI();
-  if (!genAI) throw new Error('Gemini AI not initialized');
-
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-  const systemInstruction = `
+export function getSystemInstruction(context: { cliente: Cliente, obras: unknown[], materialesDisponibles: unknown[] }) {
+  return `
     Eres el asistente inteligente de ODEPLAC PRO, una empresa de construcción en seco (pladur, aislamientos, techos).
-    Tu objetivo es ayudar al gestor de la empresa con información específica sobre un cliente.
+    Tu objetivo es ayudar al gestor de la empresa con información específica sobre un cliente y sus proyectos.
 
     CONTEXTO DEL CLIENTE:
     Nombre: ${context.cliente.nombre}
@@ -123,32 +118,14 @@ export async function chatWithClientContext(messages: { role: string, content: s
     OBRAS/PROYECTOS ASOCIADOS:
     ${JSON.stringify(context.obras, null, 2)}
 
+    CATÁLOGO DE MATERIALES DISPONIBLES:
+    ${JSON.stringify(context.materialesDisponibles.map(m => ({ nombre: m.nombre, precio: m.precio_unitario, unidad: m.unidad })), null, 2)}
+
     INSTRUCCIONES:
-    1. Responde de forma profesional y concisa.
-    2. Usa los datos del contexto para responder preguntas sobre presupuestos, estados de obra, materiales utilizados, etc.
-    3. Si no tienes información sobre algo específico, admítelo educadamente.
-    4. El gestor es tu interlocutor.
+    1. Responde de forma profesional, técnica y concisa.
+    2. Usa los datos del contexto para responder preguntas sobre presupuestos, estados de obra o materiales.
+    3. Si el usuario pregunta por opciones para una obra, consulta el "CATÁLOGO DE MATERIALES DISPONIBLES" para dar sugerencias reales.
+    4. El gestor es tu interlocutor. Saluda de forma ejecutiva.
+    6. Formato: Usa Markdown para listas o tablas si es necesario.
   `;
-
-  const chat = model.startChat({
-    history: [
-      {
-        role: "user",
-        parts: [{ text: systemInstruction + "\n\nEntendido. Saluda al usuario." }],
-      },
-      {
-        role: "model",
-        parts: [{ text: `Hola, soy el asistente de ODEPLAC. Estoy analizando los datos de ${context.cliente.nombre} y sus ${context.obras.length} proyectos. ¿En qué puedo ayudarte?` }],
-      },
-      ...messages.slice(0, -1).map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
-      }))
-    ],
-  });
-
-  const lastMessage = messages[messages.length - 1].content;
-  const result = await chat.sendMessage(lastMessage);
-  const response = await result.response;
-  return response.text();
 }
