@@ -12,11 +12,11 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const { id } = use(params)
   const [cliente, setCliente] = useState<Cliente | null>(null)
   const [fetchingClient, setFetchingClient] = useState(true)
+  const [chatInput, setChatInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const { messages, input = '', handleInputChange, handleSubmit, isLoading, error } = useChat({
+  const chat = useChat({
     api: '/api/ai/chat',
-    initialInput: '',
     body: {
       clienteId: id
     },
@@ -42,6 +42,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
+  const { messages, isLoading, error } = chat as any
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -50,7 +52,19 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
   if (fetchingClient) return <div className="p-8 text-center text-muted-foreground">Cargando contexto del cliente...</div>
 
-  console.log('Input actual:', input)
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const val = (chatInput || '').trim()
+    if (!val || isLoading) return
+
+    const c = chat as any
+    if (c.append) {
+      c.append({ role: 'user', content: val })
+    } else if (c.sendMessage) {
+      c.sendMessage(val)
+    }
+    setChatInput('')
+  }
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
@@ -102,22 +116,19 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
         <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-[9999] pointer-events-auto">
           <form
-            onSubmit={handleSubmit}
+            onSubmit={handleManualSubmit}
             className="flex space-x-2"
           >
             <input
               placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
               className="flex-1 h-10 px-3 rounded-md border border-input bg-white text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 relative z-[9999] pointer-events-auto"
-              value={input || ''}
-              onChange={(e) => {
-                console.log('Tecleando:', e.target.value);
-                handleInputChange(e);
-              }}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
               autoFocus
               name="prompt"
               autoComplete="off"
             />
-            <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()} className="relative z-[9999]">
+            <Button type="submit" size="icon" disabled={isLoading || !(chatInput || '').trim()} className="relative z-[9999]">
               <Send className="h-4 w-4" />
             </Button>
           </form>
