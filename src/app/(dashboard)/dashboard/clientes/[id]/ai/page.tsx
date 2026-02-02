@@ -15,12 +15,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [chatInput, setChatInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const chat = useChat({
+  const { messages, append, status, error } = useChat({
     api: '/api/ai/chat',
-    fetch: async (url, options) => {
-      // Forzar la ruta correcta para evitar el 405 en /api/chat
-      return fetch('/api/ai/chat', options);
-    },
     body: {
       clienteId: id
     },
@@ -46,7 +42,6 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
-  const { messages = [], error, status, sendMessage } = chat as any
   const isLoading = status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
@@ -62,9 +57,10 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     const val = (chatInput || '').trim()
     if (!val || isLoading) return
 
-    if (sendMessage) {
-      sendMessage({ text: val })
-    }
+    append({
+      role: 'user',
+      content: val
+    })
     setChatInput('')
   }
 
