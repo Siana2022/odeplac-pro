@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
+import { DefaultChatTransport } from 'ai'
 import { Sparkles, Send, ChevronLeft, Loader2, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase/client'
@@ -16,10 +17,12 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const chat = useChat({
-    api: '/api/ai/chat',
-    body: {
-      clienteId: id
-    },
+    transport: new DefaultChatTransport({
+      api: '/api/ai/chat',
+      body: {
+        clienteId: id
+      },
+    }),
     onError: (err) => {
       console.error('Chat Error:', err)
     },
