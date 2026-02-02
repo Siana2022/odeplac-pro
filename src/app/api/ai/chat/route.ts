@@ -13,6 +13,7 @@ const googleProvider = createGoogleGenerativeAI({
 export async function POST(req: Request) {
   try {
     const { clienteId, messages } = await req.json();
+    console.log('AI Chat request for clienteId:', clienteId);
 
     if (!clienteId) {
         return new Response('clienteId is required', { status: 400 });
