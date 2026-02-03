@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport } from 'ai'
+import { DefaultChatTransport, TextStreamChatTransport } from 'ai'
 import { Sparkles, Send, ChevronLeft, Loader2, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase/client'
@@ -17,7 +17,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const chat = useChat({
-    transport: new DefaultChatTransport({
+    transport: new TextStreamChatTransport({
       api: '/api/ai/chat',
       body: {
         clienteId: id
@@ -109,7 +109,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
                   {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div className={`p-4 rounded-lg shadow-sm border ${m.role === 'user' ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}>
-                  <div className="text-sm whitespace-pre-wrap">{m.content || (m.parts && m.parts.map((p:any) => p.text).join('')) || ''}</div>
+                  <div className="text-sm whitespace-pre-wrap">{m.content || (m.parts && m.parts.map((p:any) => p.text).join('')) || 'Generando...'}</div>
                 </div>
               </div>
             </div>

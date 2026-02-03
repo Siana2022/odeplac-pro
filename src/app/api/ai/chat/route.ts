@@ -59,6 +59,7 @@ export async function POST(req: Request) {
     });
 
     console.log('StreamText result available methods:', Object.keys(result));
+    console.log('Enviando stream de respuesta...');
 
     return result.toTextStreamResponse();
   } catch (error) {
