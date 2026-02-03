@@ -49,7 +49,7 @@ export async function POST(req: Request) {
       content: typeof m.content === 'string' ? m.content : m.parts?.[0]?.text || ''
     }));
 
-    const model = googleProvider('gemini-1.5-pro-latest');
+    const model = googleProvider('gemini-1.5-pro');
     console.log('Llamando a Google con el modelo:', (model as any).modelId);
 
     const result = streamText({
