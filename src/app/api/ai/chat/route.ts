@@ -49,7 +49,9 @@ export async function POST(req: Request) {
       system: systemPrompt,
     });
 
-    return result.toDataStreamResponse();
+    console.log('StreamText result available methods:', Object.keys(result));
+
+    return result.toTextStreamResponse();
   } catch (error) {
     console.error('AI Chat Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
