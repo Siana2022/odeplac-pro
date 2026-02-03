@@ -12,6 +12,7 @@ const googleProvider = createGoogleGenerativeAI({
 
 export async function POST(req: Request) {
   try {
+    console.log('API Key configurada:', !!(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY));
     const { clienteId, messages } = await req.json();
     console.log('AI Chat request for clienteId:', clienteId);
 
@@ -43,9 +44,14 @@ export async function POST(req: Request) {
       materialesDisponibles: materialesDisponibles || []
     });
 
+    const coreMessages = (messages || []).map((m: any) => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : m.parts?.[0]?.text || ''
+    }));
+
     const result = streamText({
       model: googleProvider('gemini-1.5-flash'),
-      messages,
+      messages: coreMessages,
       system: systemPrompt,
     });
 
