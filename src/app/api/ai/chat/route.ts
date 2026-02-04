@@ -12,10 +12,7 @@ export async function POST(req: Request) {
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
 
-    const systemPrompt = getSystemInstruction({ 
-      cliente, 
-      obras: (obras as any[]) ?? [] 
-    });
+    const systemPrompt = getSystemInstruction({ cliente, obras: obras ?? [] });
 
     const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
@@ -26,10 +23,9 @@ export async function POST(req: Request) {
       contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    // 🚀 CAMBIO MAESTRO: Usamos gemini-pro (v1.0) que es el más compatible en España
-    // Y usamos la versión de API v1beta que es la que mejor funciona con fetch
+    // 🚀 LLAMADA SIN STREAMING (Más compatible con cuentas gratuitas/GSuite)
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:streamGenerateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -37,17 +33,21 @@ export async function POST(req: Request) {
       }
     );
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const errorData = await response.json();
-      // Si falla gemini-pro, intentamos el flash por si acaso, pero gemini-pro es el seguro
-      throw new Error(errorData.error?.message || 'Error de comunicación con Google');
+      throw new Error(data.error?.message || 'Error en la API de Google');
     }
 
-    return new Response(response.body, {
+    // Extraemos el texto de la respuesta simple
+    const textResponse = data.candidates[0].content.parts[0].text;
+
+    return new Response(textResponse, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
 
   } catch (error: any) {
+    console.error("Error crítico IA:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { 
       status: 500,
       headers: { 'Content-Type': 'application/json' }
