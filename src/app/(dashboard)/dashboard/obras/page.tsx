@@ -39,7 +39,8 @@ const mockObras = [
 ]
 
 export default function ObrasPage() {
-  const [obras, setObras] = useState<unknown[]>([])
+  // ✅ CORRECCIÓN: Cambiamos unknown[] por any[] para que TypeScript permita acceder a las propiedades
+  const [obras, setObras] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
@@ -72,7 +73,7 @@ export default function ObrasPage() {
       .select('*, clientes(*)')
       .order('updated_at', { ascending: false })
 
-    if (data) setObras(data as (Obra & { clientes: Cliente | null })[])
+    if (data) setObras(data)
     setLoading(false)
   }
 
@@ -104,6 +105,7 @@ export default function ObrasPage() {
             <div className="flex items-center justify-between px-2">
               <h2 className="font-semibold text-zinc-700">{state.label}</h2>
               <Badge variant="outline" className="bg-white">
+                {/* ✅ Aquí estaba el error. Ahora "o" ya es reconocido correctamente */}
                 {obras.filter(o => o.estado === state.value).length}
               </Badge>
             </div>
@@ -112,7 +114,7 @@ export default function ObrasPage() {
               {loading ? (
                  <div className="text-center py-10 text-xs text-zinc-500">Cargando...</div>
               ) : (
-                (obras as any[])
+                obras
                   .filter(o => o.estado === state.value)
                   .map(obra => (
                     <Link key={obra.id} href={`/dashboard/obras/${obra.id}`}>
@@ -135,7 +137,7 @@ export default function ObrasPage() {
                           </div>
                         )}
                         <div className="flex justify-between items-center mt-3">
-                          <span className="text-xs font-semibold">€{obra.total_presupuesto.toLocaleString()}</span>
+                          <span className="text-xs font-semibold">€{obra.total_presupuesto?.toLocaleString() || '0'}</span>
                           <Button variant="ghost" size="icon" className="h-6 w-6">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
