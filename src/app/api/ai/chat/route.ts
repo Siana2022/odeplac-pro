@@ -2,41 +2,42 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
-
+// Forzamos el entorno de ejecución
+export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
+
 export async function POST(req: Request) {
-  console.log('--- MODO COMPATIBILIDAD TOTAL - HORA:', new Date().toLocaleTimeString());
+  console.log('--- INICIANDO ODEPLAC CHAT V1 ---');
 
   try {
     const { clienteId, messages } = await req.json();
     
+    // 1. Datos de Supabase
     const supabase = await createClient();
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
     const { data: materiales } = await supabase.from('materiales').select('nombre, precio_unitario, unidad').limit(100);
 
-    // 1. Obtenemos las instrucciones
     const systemPrompt = getSystemInstruction({
       cliente: cliente || {},
       obras: obras || [],
       materialesDisponibles: materiales || []
     });
 
-    // 2. Modelo limpio (sin campos extra que den error 400)
+    // 2. Inicializar Modelo
     const model = genAI.getGenerativeModel(
       { model: "gemini-1.5-flash" },
       { apiVersion: 'v1' }
     );
 
-    // 3. Formateamos el historial y PEGAMOS el sistema al principio del primer mensaje
+    // 3. Formatear historial con inyección de sistema
     const history = (messages || []).map((m: any, index: number) => {
       let text = typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '');
       
-      // Si es el primer mensaje del usuario, le inyectamos el contexto de Odeplac
       if (index === 0 && m.role === 'user') {
-        text = `INSTRUCCIONES DE SISTEMA PARA ODEPLAC:\n${systemPrompt}\n\nPREGUNTA DEL USUARIO:\n${text}`;
+        text = `CONTEXTO DEL SISTEMA:\n${systemPrompt}\n\nPREGUNTA:\n${text}`;
       }
 
       return {
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
       };
     });
 
-    // 4. Stream nativo simplificado
+    // 4. Generar contenido en streaming
     const result = await model.generateContentStream({
       contents: history,
     });
@@ -60,8 +61,8 @@ export async function POST(req: Request) {
               controller.enqueue(encoder.encode(chunkText));
             }
           }
-        } catch (e) {
-          console.error("Error en el flujo:", e);
+        } catch (err) {
+          console.error("Error en el flujo:", err);
         } finally {
           controller.close();
         }
@@ -76,7 +77,10 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error('ERROR FINAL:', error.message);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    console.error('ERROR CRÍTICO EN API:', error.message);
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
