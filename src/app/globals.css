@@ -6,48 +6,50 @@
 @theme inline {
   --font-archivo: var(--font-archivo);
   
-  /* Colores base para tu tema azul */
+  /* FORZAMOS EL AZUL CORPORATIVO EN TODO EL SISTEMA */
   --color-background: #295693;
   --color-foreground: #ffffff;
   
-  /* Colores de componentes */
+  /* Sidebar y Tarjetas ahora son un azul un pelín más oscuro para dar profundidad */
+  --color-sidebar: #1e3f6d;
+  --color-sidebar-foreground: #ffffff;
   --color-card: #1e3f6d;
   --color-card-foreground: #ffffff;
-  --color-popover: #1e3f6d;
-  --color-popover-foreground: #ffffff;
   
-  /* Colores primarios (Blanco sobre azul) */
-  --color-primary: #ffffff;
-  --color-primary-foreground: #295693;
-  
-  /* Bordes y estados */
+  /* Bordes sutiles en blanco transparente */
   --color-border: rgba(255, 255, 255, 0.1);
   --color-input: rgba(255, 255, 255, 0.2);
-  --color-ring: #ffffff; /* Color para el foco de los inputs */
 }
 
 :root {
   --background: #295693;
   --foreground: #ffffff;
+  --sidebar: #1e3f6d;
   --radius: 0.625rem;
 }
 
 @layer base {
-  * {
-    /* Eliminamos el outline-ring/50 que rompía el build */
-    @apply border-border;
-  }
-  
   body {
-    background-color: #295693;
-    color: #ffffff;
+    background-color: #295693 !important; /* El !important asegura que nada lo cambie */
+    color: #ffffff !important;
     font-family: var(--font-archivo), sans-serif;
     min-height: 100vh;
     margin: 0;
   }
 
-  /* Aseguramos que los inputs se vean bien sobre el fondo azul */
-  input, textarea, select {
-    @apply bg-white/10 border-white/20 text-white placeholder:text-white/50;
+  /* Forzamos que todos los textos sean blancos fuera de las cajas */
+  h1, h2, h3, h4, h5, h6, p, span, label, div {
+    color: #ffffff;
+  }
+
+  /* Quitamos el fondo blanco de la sidebar si Tailwind lo está forzando */
+  [class*="sidebar"], aside {
+    background-color: #1e3f6d !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+
+  /* Los iconos de la sidebar también en blanco */
+  svg {
+    color: #ffffff;
   }
 }
