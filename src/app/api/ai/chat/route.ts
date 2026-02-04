@@ -6,14 +6,15 @@ import { getSystemInstruction } from '@/lib/ai/gemini';
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
-  // Confirmamos que estamos en la versión corregida
-  console.log('--- CONEXIÓN ACTIVA V1 - HORA:', new Date().toLocaleTimeString());
+  console.log('--- FORZANDO CONEXIÓN V1 FINAL - HORA:', new Date().toLocaleTimeString());
 
   try {
     const { clienteId, messages } = await req.json();
     
+    // CONFIGURACIÓN QUE BLOQUEA LA VERSIÓN V1
     const google = createGoogleGenerativeAI({
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      baseURL: 'https://generativelanguage.googleapis.com/v1', // <--- ESTO OBLIGA A USAR V1
     });
 
     const supabase = await createClient();
@@ -32,16 +33,16 @@ export async function POST(req: Request) {
       content: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '')
     }));
 
-    // 🚀 CAMBIO CLAVE: Usamos el identificador de producción estable
+    // PROBAMOS CON EL NOMBRE TÉCNICO COMPLETO
     const result = await streamText({
-      model: google('gemini-1.5-flash-latest'), 
+      model: google('models/gemini-1.5-flash'), 
       messages: formattedMessages,
       system: systemPrompt,
     });
 
     return result.toTextStreamResponse();
   } catch (error: any) {
-    console.error('ERROR EN EL CHAT:', error.message);
+    console.error('ERROR CRÍTICO:', error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
