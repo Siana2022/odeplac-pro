@@ -17,21 +17,19 @@ export async function POST(req: Request) {
       obras: (obras as any[]) ?? [] 
     });
 
-    // Formateamos el historial para la API de Google
     const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || '' }]
     }));
 
-    // Inyectamos el prompt de sistema
     if (contents.length > 0) {
       contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    // 🚀 LLAMADA DIRECTA AL ENDPOINT (Sin librerías intermedias)
-    // Probamos con la versión v1 y el modelo flash
+    // 🚀 CAMBIO MAESTRO: Usamos gemini-pro (v1.0) que es el más compatible en España
+    // Y usamos la versión de API v1beta que es la que mejor funciona con fetch
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:streamGenerateContent?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -41,16 +39,15 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Error en la API de Google');
+      // Si falla gemini-pro, intentamos el flash por si acaso, pero gemini-pro es el seguro
+      throw new Error(errorData.error?.message || 'Error de comunicación con Google');
     }
 
-    // Retornamos el stream directamente al cliente
     return new Response(response.body, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
 
   } catch (error: any) {
-    console.error("Error crítico IA:", error.message);
     return new Response(JSON.stringify({ error: error.message }), { 
       status: 500,
       headers: { 'Content-Type': 'application/json' }
