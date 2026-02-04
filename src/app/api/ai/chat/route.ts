@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   try {
     const { clienteId, messages } = await req.json();
     
-    // Forzamos la configuración más básica posible
+    // USAMOS LA CONFIGURACIÓN MÁS DIRECTA POSIBLE
     const google = createGoogleGenerativeAI({
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
     });
@@ -25,16 +25,15 @@ export async function POST(req: Request) {
       materialesDisponibles: materiales || []
     });
 
-    // Formateo de mensajes ultra-limpio
     const formattedMessages = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'assistant',
       content: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '')
     }));
 
-    // 🚀 CAMBIO CLAVE: Usamos 'gemini-1.5-flash' a secas. 
-    // Sin '-latest' y sin prefijos, para que el SDK use su ruta por defecto.
+    // 🚀 CAMBIO RADICAL: GEMINI 2.0 FLASH
+    // Este modelo es el actual estándar de Google y debería saltarse cualquier error de "Not Found"
     const result = await streamText({
-      model: google('gemini-1.5-flash'), 
+      model: google('gemini-2.0-flash'), 
       messages: formattedMessages,
       system: systemPrompt,
     });
