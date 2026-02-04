@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     // 🚀 CAMBIO RADICAL: GEMINI 2.0 FLASH
     // Este modelo es el actual estándar de Google y debería saltarse cualquier error de "Not Found"
     const result = await streamText({
-      model: google('gemini-2.0-flash'), 
+      model: google('gemini-1.5-flash'),
       messages: formattedMessages,
       system: systemPrompt,
     });
