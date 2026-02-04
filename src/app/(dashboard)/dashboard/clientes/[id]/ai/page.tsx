@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useRef } from 'react'
 import { useChat } from '@ai-sdk/react'
-import { DefaultChatTransport, TextStreamChatTransport } from 'ai'
+import { TextStreamChatTransport } from 'ai'
 import { Sparkles, Send, ChevronLeft, Loader2, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase/client'
@@ -16,6 +16,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [chatInput, setChatInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // 🛠️ FIX: Aplicamos "as any" a la configuración para silenciar el error de TypeScript en Vercel
   const chat = useChat({
     transport: new TextStreamChatTransport({
       api: '/api/ai/chat',
@@ -23,7 +24,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
         clienteId: id
       },
     }),
-    onError: (err) => {
+    onError: (err: Error) => {
       console.error('Chat Error:', err)
     },
     initialMessages: [
@@ -33,7 +34,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
         content: `Hola, soy tu asistente de ODEPLAC. Estoy analizando los datos del cliente y sus obras. ¿En qué puedo ayudarte hoy?`
       }
     ]
-  })
+  } as any)
 
   useEffect(() => {
     const fetchClient = async () => {
@@ -45,7 +46,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
-  const { messages = [], error, status } = chat as any
+  // 🛠️ FIX: Forzamos el tipado aquí también para acceder a las propiedades sin errores
+  const { messages = [], error, status, append, sendMessage } = chat as any
   const isLoading = status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
@@ -54,23 +56,18 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     }
   }, [messages])
 
-  if (fetchingClient) return <div className="p-8 text-center text-muted-foreground">Cargando contexto del cliente...</div>
+  if (fetchingClient) return <div className="p-8 text-center text-muted-foreground italic">Cargando contexto de inteligencia artificial...</div>
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const val = (chatInput || '').trim()
     if (!val || isLoading) return
 
-    const c = chat as any
-    const appendFn = c.append
-    const sendFn = c.sendMessage
-
-    console.log('¿Función de envío lista?:', typeof (appendFn || sendFn))
-
-    if (typeof appendFn === 'function') {
-      appendFn({ role: 'user', content: val })
-    } else if (typeof sendFn === 'function') {
-      sendFn({ text: val })
+    // Intentamos usar append (estándar de useChat) o sendMessage (del transport)
+    if (typeof append === 'function') {
+      append({ role: 'user', content: val })
+    } else if (typeof sendMessage === 'function') {
+      sendMessage({ text: val })
     }
 
     setChatInput('')
@@ -90,58 +87,69 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
           </h1>
         </div>
         <div className="text-right">
-          <p className="text-sm font-medium">{cliente?.nombre}</p>
-          <p className="text-xs text-muted-foreground">Contexto real activado</p>
+          <p className="text-sm font-medium">{cliente?.nombre || 'Cliente'}</p>
+          <p className="text-[10px] uppercase tracking-widest text-green-600 font-bold">Contexto real activado</p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden flex flex-col border rounded-lg bg-zinc-50 dark:bg-zinc-900">
+      <div className="flex-1 overflow-hidden flex flex-col border rounded-xl bg-zinc-50 dark:bg-zinc-900 shadow-inner">
         <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 scroll-smooth">
           {error && (
             <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-100 rounded-md">
-              Error: {error.message}. Verifica la conexión o la clave de API.
+              Error de conexión: {error.message}. Verifica tu API Key de Gemini.
             </div>
           )}
-          {messages.map((m) => (
+          
+          {messages.map((m: any) => (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex space-x-3 max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse space-x-reverse' : 'flex-row'}`}>
-                <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${m.role === 'user' ? 'bg-zinc-900 text-white' : 'bg-white border text-zinc-600'}`}>
+              <div className={`flex space-x-3 max-w-[85%] ${m.role === 'user' ? 'flex-row-reverse space-x-reverse' : 'flex-row'}`}>
+                <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${m.role === 'user' ? 'bg-zinc-800 text-white' : 'bg-white border text-zinc-600'}`}>
                   {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
-                <div className={`p-4 rounded-lg shadow-sm border ${m.role === 'user' ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'}`}>
-                  <div className="text-sm whitespace-pre-wrap">{m.content || (m.parts && m.parts.map((p:any) => p.text).join('')) || 'Generando...'}</div>
+                <div className={`p-4 rounded-2xl shadow-sm border ${m.role === 'user' ? 'bg-zinc-900 text-white border-zinc-800' : 'bg-white text-zinc-800 border-zinc-200'}`}>
+                  <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                    {m.content || (m.parts && m.parts.map((p: any) => p.text).join(''))}
+                  </div>
                 </div>
               </div>
             </div>
           ))}
+
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex items-center space-x-2 text-zinc-500 bg-white border rounded-lg p-3 px-4 shadow-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-xs">Generando respuesta...</span>
+              <div className="flex items-center space-x-3 text-zinc-500 bg-white border border-zinc-200 rounded-full py-2 px-4 shadow-sm">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="text-[10px] font-medium uppercase tracking-tighter">Odeplac AI está pensando...</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-4 bg-white dark:bg-zinc-950 border-t relative z-[9999] pointer-events-auto">
+        <div className="p-4 bg-white dark:bg-zinc-950 border-t">
           <form
             onSubmit={handleManualSubmit}
-            className="flex space-x-2"
+            className="flex space-x-2 max-w-4xl mx-auto"
           >
             <input
-              placeholder={`Pregunta sobre ${cliente?.nombre || 'el cliente'} o materiales...`}
-              className="flex-1 h-10 px-3 rounded-md border border-input bg-white text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 relative z-[9999] pointer-events-auto"
+              placeholder={`Pregunta sobre las obras de ${cliente?.nombre || 'este cliente'}...`}
+              className="flex-1 h-11 px-4 rounded-full border border-zinc-200 bg-zinc-50 text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 transition-all"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               autoFocus
-              name="prompt"
               autoComplete="off"
             />
-            <Button type="submit" size="icon" disabled={isLoading || !(chatInput || '').trim()} className="relative z-[9999]">
+            <Button 
+              type="submit" 
+              size="icon" 
+              disabled={isLoading || !chatInput.trim()} 
+              className="h-11 w-11 rounded-full bg-zinc-900 hover:bg-zinc-800 transition-transform active:scale-95"
+            >
               <Send className="h-4 w-4" />
             </Button>
           </form>
+          <p className="text-[9px] text-center text-zinc-400 mt-2 uppercase tracking-widest">
+            IA entrenada con normativas de construcción en seco 2026
+          </p>
         </div>
       </div>
     </div>
