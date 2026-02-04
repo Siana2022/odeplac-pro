@@ -13,43 +13,37 @@ export async function POST(req: Request) {
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
 
-    const systemPrompt = getSystemInstruction({ 
-      cliente, 
-      obras: (obras as any[]) ?? [] 
-    });
+    const systemPrompt = getSystemInstruction({ cliente, obras: obras ?? [] });
     
-    // ✅ USAMOS EL MODELO QUE TU ESCÁNER CONFIRMÓ: gemini-2.0-flash
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    
+    // ✅ CAMBIO CLAVE: Usamos el alias "gemini-1.5-flash" que es el que tiene la cuota gratuita más amplia
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const history = (messages || []).map((m: any) => ({
+    const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || '' }]
     }));
 
-    if (history.length > 0) {
-      history[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${history[0].parts[0].text}`;
+    if (contents.length > 0) {
+      contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    const result = await model.generateContentStream({ contents: history });
-    const encoder = new TextEncoder();
+    // Usamos una llamada normal (no stream) para asegurar que la cuota no se bloquee
+    const result = await model.generateContent({ contents });
+    const responseText = result.response.text();
 
-    return new Response(new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
-            if (text) controller.enqueue(encoder.encode(text));
-          }
-        } catch (e) {
-          console.error("Error en stream:", e);
-        } finally {
-          controller.close();
-        }
-      },
-    }), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    return new Response(responseText, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    // Si da error de cuota, intentamos avisar al usuario de forma amigable
+    const isQuotaError = error.message?.includes('429') || error.message?.includes('quota');
+    const message = isQuotaError 
+      ? "Google ha limitado temporalmente las consultas gratuitas. Por favor, espera 30 segundos e inténtalo de nuevo."
+      : error.message;
+      
+    return new Response(JSON.stringify({ error: message }), { status: 500 });
   }
 }
