@@ -7,9 +7,6 @@ export const runtime = 'nodejs';
 export async function POST(req: Request) {
   try {
     const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    // 🕵️‍♂️ CHIVATO: Esto saldrá en los logs de Vercel
-    console.log(`Verificando llave: termina en ...${key.slice(-4)}`);
-    
     const { clienteId, messages } = await req.json();
     const supabase = await createClient();
     
@@ -21,9 +18,12 @@ export async function POST(req: Request) {
       obras: (obras as any[]) ?? [] 
     });
     
-    // 🚀 CAMBIO DE MODELO: Probamos con la versión "latest" o "gemini-pro"
+    // 🚀 CONFIGURACIÓN DE SEGURIDAD: Usamos v1 y el modelo Flash 1.5
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel(
+      { model: "gemini-1.5-flash" },
+      { apiVersion: 'v1' } 
+    );
 
     const history = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
             if (text) controller.enqueue(encoder.encode(text));
           }
         } catch (e) {
-          console.error("Error en stream:", e);
+          console.error("Error en el envío de datos de IA:", e);
         } finally {
           controller.close();
         }
@@ -53,7 +53,6 @@ export async function POST(req: Request) {
     }), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
   } catch (error: any) {
-    console.error("Error completo:", error);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
