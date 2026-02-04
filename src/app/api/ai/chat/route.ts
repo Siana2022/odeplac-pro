@@ -5,9 +5,10 @@ import { getSystemInstruction } from '@/lib/ai/gemini';
 
 export const maxDuration = 30;
 
-// Configura el proveedor de Google con la clave de API disponible
+// Configura el proveedor de Google forzando la versión estable v1
 const googleProvider = createGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
+  apiVersion: 'v1', 
 });
 
 export async function POST(req: Request) {
