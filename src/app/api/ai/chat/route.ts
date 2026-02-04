@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
@@ -17,42 +16,44 @@ export async function POST(req: Request) {
       cliente, 
       obras: (obras as any[]) ?? [] 
     });
-    
-    // 🚀 CONFIGURACIÓN DE SEGURIDAD: Usamos v1 y el modelo Flash 1.5
-    const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel(
-      { model: "gemini-1.5-flash" },
-      { apiVersion: 'v1' } 
-    );
 
-    const history = (messages || []).map((m: any) => ({
+    // Formateamos el historial para la API de Google
+    const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || '' }]
     }));
 
-    if (history.length > 0) {
-      history[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${history[0].parts[0].text}`;
+    // Inyectamos el prompt de sistema
+    if (contents.length > 0) {
+      contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    const result = await model.generateContentStream({ contents: history });
-    const encoder = new TextEncoder();
+    // 🚀 LLAMADA DIRECTA AL ENDPOINT (Sin librerías intermedias)
+    // Probamos con la versión v1 y el modelo flash
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents })
+      }
+    );
 
-    return new Response(new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
-            if (text) controller.enqueue(encoder.encode(text));
-          }
-        } catch (e) {
-          console.error("Error en el envío de datos de IA:", e);
-        } finally {
-          controller.close();
-        }
-      },
-    }), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || 'Error en la API de Google');
+    }
+
+    // Retornamos el stream directamente al cliente
+    return new Response(response.body, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
 
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    console.error("Error crítico IA:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
