@@ -5,35 +5,39 @@ import { getSystemInstruction } from '@/lib/ai/gemini';
 
 export const maxDuration = 30;
 
-// Configura el proveedor de Google forzando la versión estable v1
-const googleProvider = createGoogleGenerativeAI({
+// FORZAMOS LA VERSIÓN V1 (ESTABLE) PARA EVITAR EL ERROR 404 DE LA BETA
+const google = createGoogleGenerativeAI({
   apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
   apiVersion: 'v1', 
 });
 
 export async function POST(req: Request) {
   try {
-    console.log('API Key configurada:', !!(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY));
     const { clienteId, messages } = await req.json();
-    console.log('AI Chat request for clienteId:', clienteId);
 
     if (!clienteId) {
-        return new Response('clienteId is required', { status: 400 });
+      return new Response('clienteId is required', { status: 400 });
     }
 
     const supabase = await createClient();
 
-    // Fetch client
-    const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
-    if (!cliente) return new Response('Cliente not found', { status: 404 });
+    // 1. Obtener datos del cliente
+    const { data: cliente } = await supabase
+      .from('clientes')
+      .select('*')
+      .eq('id', clienteId)
+      .single();
 
-    // Fetch projects with their items and materials
+    if (!cliente) {
+      return new Response('Cliente not found', { status: 404 });
+    }
+
+    // 2. Obtener obras y materiales para dar contexto real a la IA
     const { data: obras } = await supabase
       .from('obras')
       .select('*, presupuestos_items(*, materiales(*))')
       .eq('cliente_id', clienteId);
 
-    // Fetch available materials catalog
     const { data: materialesDisponibles } = await supabase
       .from('materiales')
       .select('nombre, precio_unitario, unidad')
@@ -45,30 +49,29 @@ export async function POST(req: Request) {
       materialesDisponibles: materialesDisponibles || []
     });
 
+    // 3. Normalizar mensajes
     const coreMessages = (messages || []).map((m: any) => ({
       role: m.role,
       content: typeof m.content === 'string' ? m.content : m.parts?.[0]?.text || ''
     }));
 
-    const model = googleProvider('gemini-1.5-flash');
-    console.log('Llamando a Google con el modelo:', (model as any).modelId);
-
-    const result = streamText({
-      model,
+    // 4. LLAMADA AL MODELO CON EL NOMBRE ESTÁNDAR
+    const result = await streamText({
+      model: google('gemini-1.5-flash'), 
       messages: coreMessages,
       system: systemPrompt,
     });
 
-    console.log('StreamText result available methods:', Object.keys(result));
-    console.log('Enviando stream de respuesta...');
-
     return result.toTextStreamResponse();
-  } catch (error) {
+  } catch (error: any) {
     console.error('AI Chat Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    // Retornamos el error detallado para saber qué dice Google exactamente ahora
+    return new Response(JSON.stringify({ 
+      error: error.message || 'Error en la conexión con la IA',
+      status: error.statusCode 
+    }), { 
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }
