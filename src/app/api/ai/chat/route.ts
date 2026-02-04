@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     
     // 🚀 CAMBIO DE MODELO: Probamos con la versión "latest" o "gemini-pro"
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
     const history = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
