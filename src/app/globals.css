@@ -5,51 +5,37 @@
 
 @theme inline {
   --font-archivo: var(--font-archivo);
-  
-  /* FORZAMOS EL AZUL CORPORATIVO EN TODO EL SISTEMA */
   --color-background: #295693;
   --color-foreground: #ffffff;
-  
-  /* Sidebar y Tarjetas ahora son un azul un pelín más oscuro para dar profundidad */
   --color-sidebar: #1e3f6d;
-  --color-sidebar-foreground: #ffffff;
-  --color-card: #1e3f6d;
-  --color-card-foreground: #ffffff;
-  
-  /* Bordes sutiles en blanco transparente */
   --color-border: rgba(255, 255, 255, 0.1);
-  --color-input: rgba(255, 255, 255, 0.2);
 }
 
 :root {
   --background: #295693;
   --foreground: #ffffff;
-  --sidebar: #1e3f6d;
-  --radius: 0.625rem;
 }
 
 @layer base {
-  body {
-    background-color: #295693 !important; /* El !important asegura que nada lo cambie */
+  html, body {
+    background-color: #295693 !important;
     color: #ffffff !important;
     font-family: var(--font-archivo), sans-serif;
-    min-height: 100vh;
     margin: 0;
+    min-height: 100vh;
   }
 
-  /* Forzamos que todos los textos sean blancos fuera de las cajas */
-  h1, h2, h3, h4, h5, h6, p, span, label, div {
+  /* Forzamos que CUALQUIER contenedor de la app sea azul o transparente */
+  div, main, aside, header, section {
+    background-color: transparent; 
     color: #ffffff;
   }
 
-  /* Quitamos el fondo blanco de la sidebar si Tailwind lo está forzando */
-  [class*="sidebar"], aside {
-    background-color: #1e3f6d !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+  /* Esto anula las clases bg-white o bg-zinc de los componentes que ya tengas */
+  .bg-white, .bg-zinc-50, .bg-zinc-900, .bg-background {
+    background-color: #295693 !important;
   }
 
-  /* Los iconos de la sidebar también en blanco */
-  svg {
-    color: #ffffff;
-  }
+  /* Ajuste de links para que no se pierdan */
+  a { color: inherit; text-decoration: none; }
 }
