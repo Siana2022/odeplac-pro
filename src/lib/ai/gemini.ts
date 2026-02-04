@@ -4,7 +4,7 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
 
 export async function generateTechnicalMemory(obra: any, items: any[]) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const prompt = `Genera una memoria técnica para la obra: ${obra.titulo}. Materiales: ${JSON.stringify(items)}`;
     const result = await model.generateContent(prompt);
     return result.response.text();
@@ -15,7 +15,7 @@ export async function generateTechnicalMemory(obra: any, items: any[]) {
 
 export async function extractMaterialsFromPDF(base64Data: string) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const result = await model.generateContent([
       "Extrae productos JSON: nombre_producto, unidad, precio_unitario",
       { inlineData: { data: base64Data, mimeType: "application/pdf" } }

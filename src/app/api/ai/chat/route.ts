@@ -1,20 +1,54 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createClient } from '@/lib/supabase/server';
+import { getSystemInstruction } from '@/lib/ai/gemini';
+
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
     const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
+    const { clienteId, messages } = await req.json();
+    const supabase = await createClient();
     
-    // Le pedimos a Google la lista real de modelos que TU llave puede usar
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-    const data = await response.json();
+    const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
+    const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
 
-    console.log("--- ESCÁNER DE MODELOS ---");
-    console.log(JSON.stringify(data, null, 2));
-
-    return new Response(JSON.stringify(data), { 
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
+    const systemPrompt = getSystemInstruction({ 
+      cliente, 
+      obras: (obras as any[]) ?? [] 
     });
+    
+    // ✅ USAMOS EL MODELO QUE TU ESCÁNER CONFIRMÓ: gemini-2.0-flash
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    const history = (messages || []).map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.content || '' }]
+    }));
+
+    if (history.length > 0) {
+      history[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${history[0].parts[0].text}`;
+    }
+
+    const result = await model.generateContentStream({ contents: history });
+    const encoder = new TextEncoder();
+
+    return new Response(new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of result.stream) {
+            const text = chunk.text();
+            if (text) controller.enqueue(encoder.encode(text));
+          }
+        } catch (e) {
+          console.error("Error en stream:", e);
+        } finally {
+          controller.close();
+        }
+      },
+    }), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
