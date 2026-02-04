@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
@@ -14,11 +13,6 @@ export async function POST(req: Request) {
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
 
     const systemPrompt = getSystemInstruction({ cliente, obras: obras ?? [] });
-    
-    const genAI = new GoogleGenerativeAI(key);
-    
-    // ✅ CAMBIO CLAVE: Usamos el alias "gemini-1.5-flash" que es el que tiene la cuota gratuita más amplia
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
@@ -29,21 +23,33 @@ export async function POST(req: Request) {
       contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    // Usamos una llamada normal (no stream) para asegurar que la cuota no se bloquee
-    const result = await model.generateContent({ contents });
-    const responseText = result.response.text();
+    // 🚀 CAMBIO CRÍTICO: Usamos 'v1' (estable) y 'gemini-2.0-flash'
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents })
+      }
+    );
 
-    return new Response(responseText, {
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Si el 2.0 falla, este error nos dirá exactamente por qué
+      throw new Error(data.error?.message || 'Error de comunicación con Google');
+    }
+
+    const textResponse = data.candidates[0].content.parts[0].text;
+
+    return new Response(textResponse, {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
 
   } catch (error: any) {
-    // Si da error de cuota, intentamos avisar al usuario de forma amigable
-    const isQuotaError = error.message?.includes('429') || error.message?.includes('quota');
-    const message = isQuotaError 
-      ? "Google ha limitado temporalmente las consultas gratuitas. Por favor, espera 30 segundos e inténtalo de nuevo."
-      : error.message;
-      
-    return new Response(JSON.stringify({ error: message }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
