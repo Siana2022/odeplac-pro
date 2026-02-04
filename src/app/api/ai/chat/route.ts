@@ -6,12 +6,16 @@ import { getSystemInstruction } from '@/lib/ai/gemini';
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
+  // 1. LOG DE CONTROL PARA VER SI EL CÓDIGO SE ACTUALIZA
+  console.log('--- INTENTO DE CONEXIÓN V1 - HORA:', new Date().toLocaleTimeString());
+
   try {
     const { clienteId, messages } = await req.json();
     
-    // USAMOS LA CONFIGURACIÓN MÁS DIRECTA POSIBLE
+    // Forzamos la versión v1 explícitamente en el objeto de configuración
     const google = createGoogleGenerativeAI({
-      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
+      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      apiVersion: 'v1' 
     });
 
     const supabase = await createClient();
@@ -30,17 +34,16 @@ export async function POST(req: Request) {
       content: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '')
     }));
 
-    // 🚀 CAMBIO RADICAL: GEMINI 2.0 FLASH
-    // Este modelo es el actual estándar de Google y debería saltarse cualquier error de "Not Found"
+    // 2. Usamos el nombre de modelo más estándar
     const result = await streamText({
-      model: google('gemini-1.5-flash'),
+      model: google('gemini-1.5-flash'), 
       messages: formattedMessages,
       system: systemPrompt,
     });
 
     return result.toTextStreamResponse();
   } catch (error: any) {
-    console.error('AI ERROR:', error);
+    console.error('ERROR DETECTADO:', error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
