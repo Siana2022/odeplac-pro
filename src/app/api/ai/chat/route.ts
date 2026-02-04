@@ -9,11 +9,10 @@ export async function POST(req: Request) {
   try {
     const { clienteId, messages } = await req.json();
     
-    // Verificamos si la API KEY llega (lo verás en los logs de Vercel)
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
-    console.log('API Key presente:', !!apiKey);
-
-    const google = createGoogleGenerativeAI({ apiKey });
+    // Forzamos la configuración más básica posible
+    const google = createGoogleGenerativeAI({
+      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
+    });
 
     const supabase = await createClient();
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
@@ -26,22 +25,23 @@ export async function POST(req: Request) {
       materialesDisponibles: materiales || []
     });
 
-    // 🛡️ FORMATEO DE MENSAJES PARA EVITAR EL ERROR DE SCHEMA
+    // Formateo de mensajes ultra-limpio
     const formattedMessages = (messages || []).map((m: any) => ({
-      role: m.role,
-      content: typeof m.content === 'string' ? m.content : (m.content?.[0]?.text || m.parts?.[0]?.text || '')
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '')
     }));
 
-    // 🚀 MODELO COMPATIBLE 100% (gemini-1.5-flash-latest)
+    // 🚀 CAMBIO CLAVE: Usamos 'gemini-1.5-flash' a secas. 
+    // Sin '-latest' y sin prefijos, para que el SDK use su ruta por defecto.
     const result = await streamText({
-      model: google('gemini-1.5-flash-latest'), // Usar '-latest' fuerza a Google a buscar la versión más activa
+      model: google('gemini-1.5-flash'), 
       messages: formattedMessages,
       system: systemPrompt,
     });
 
     return result.toTextStreamResponse();
   } catch (error: any) {
-    console.error('DETALLE DEL ERROR:', error);
+    console.error('AI ERROR:', error);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
