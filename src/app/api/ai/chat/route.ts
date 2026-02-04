@@ -23,7 +23,6 @@ export async function POST(req: Request) {
       contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
-    // 🚀 MODELO CONFIRMADO: Usamos gemini-2.5-flash (el más moderno de tu lista)
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${key}`,
       {
@@ -33,13 +32,29 @@ export async function POST(req: Request) {
       }
     );
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Error en la comunicación');
-    }
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    // Devolvemos el chorro de datos (Stream) para que el chat sea fluido
-    return new Response(response.body, {
+    // 🚀 TRANSFORMADOR: Filtramos el JSON para enviar solo el texto limpio
+    const transformStream = new TransformStream({
+      transform(chunk, controller) {
+        const text = decoder.decode(chunk);
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.substring(6));
+              const content = json.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (content) controller.enqueue(encoder.encode(content));
+            } catch (e) {
+              // Ignoramos fragmentos de JSON incompletos durante el streaming
+            }
+          }
+        }
+      }
+    });
+
+    return new Response(response.body?.pipeThrough(transformStream), {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
 
