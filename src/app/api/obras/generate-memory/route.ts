@@ -1,35 +1,37 @@
-import { NextResponse } from 'next/server'
-import { generateTechnicalMemory } from '@/lib/ai/gemini'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server';
+import { generateTechnicalMemory } from '@/lib/ai/gemini';
+import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { obraId } = await req.json()
-    const supabase = await createClient()
+    const { obraId } = await req.json();
+    const supabase = await createClient();
 
-    // Fetch obra, cliente and materials
-    const { data: obra } = await supabase.from('obras').select('*, clientes(*)').eq('id', obraId).single()
-    const { data: items } = await supabase.from('presupuestos_items').select('*, materiales(*)').eq('obra_id', obraId)
+    // 1. Obtenemos la obra con sus materiales
+    const { data: obra, error: obraError } = await supabase
+      .from('obras')
+      .select('*, clientes(*)')
+      .eq('id', obraId)
+      .single();
 
-    if (!obra) return NextResponse.json({ error: 'Obra not found' }, { status: 404 })
+    if (obraError || !obra) return NextResponse.json({ error: 'Obra no encontrada' }, { status: 404 });
+
+    const { data: items } = await supabase
+      .from('presupuestos_items')
+      .select('*, materiales(*)')
+      .eq('obra_id', obraId);
 
     const materiales = items?.map(item => ({
-      nombre: item.materiales.nombre,
-      unidad: item.materiales.unidad,
-      cantidad: item.cantidad
-    })) || []
+      nombre: item.materiales?.nombre,
+      cantidad: item.cantidad,
+      unidad: item.materiales?.unidad
+    })) || [];
 
-    const memory = await generateTechnicalMemory({
-      cliente: obra.clientes,
-      obra: obra,
-      materiales: materiales
-    })
+    // ✅ CORRECCIÓN: Enviamos los 2 argumentos que espera gemini.ts
+    const memory = await generateTechnicalMemory(obra, materiales);
 
-    // Save memory to database
-    await supabase.from('obras').update({ memoria_tecnica_final: memory }).eq('id', obraId)
-
-    return NextResponse.json({ memory })
+    return NextResponse.json({ memory });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
