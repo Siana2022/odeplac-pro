@@ -15,7 +15,10 @@ export async function POST(req: Request) {
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
 
-    const systemPrompt = getSystemInstruction({ cliente, obras });
+    const systemPrompt = getSystemInstruction({ 
+      cliente, 
+      obras: obras ?? [] // 👈 Si obras es null, le pasamos una lista vacía []
+    });
     
     // ✅ CORRECCIÓN: Quitamos la versión explícita para evitar el error 404
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
