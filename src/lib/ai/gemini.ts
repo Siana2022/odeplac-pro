@@ -4,7 +4,7 @@ import { Cliente, Obra } from "@/types/database";
 let genAIInstance: GoogleGenerativeAI | null = null;
 
 const getGenAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Missing GEMINI_API_KEY environment variable');
