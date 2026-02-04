@@ -1,22 +1,19 @@
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { streamText } from 'ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAIStream, Message, StreamingTextResponse } from 'ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
-  console.log('--- FORZANDO CONEXIÓN V1 FINAL - HORA:', new Date().toLocaleTimeString());
+  console.log('--- USANDO LIBRERÍA NATIVA GOOGLE - HORA:', new Date().toLocaleTimeString());
 
   try {
     const { clienteId, messages } = await req.json();
     
-    // CONFIGURACIÓN QUE BLOQUEA LA VERSIÓN V1
-    const google = createGoogleGenerativeAI({
-      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      baseURL: 'https://generativelanguage.googleapis.com/v1', // <--- ESTO OBLIGA A USAR V1
-    });
-
+    // 1. Inicializamos con la librería oficial
+    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
+    
     const supabase = await createClient();
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
@@ -28,21 +25,31 @@ export async function POST(req: Request) {
       materialesDisponibles: materiales || []
     });
 
-    const formattedMessages = (messages || []).map((m: any) => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '')
-    }));
-
-    // PROBAMOS CON EL NOMBRE TÉCNICO COMPLETO
-    const result = await streamText({
-      model: google('models/gemini-1.5-flash'), 
-      messages: formattedMessages,
-      system: systemPrompt,
+    // 2. Configuramos el modelo con la instrucción de sistema de forma nativa
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      systemInstruction: systemPrompt // Aquí la librería nativa sí sabe cómo enviarlo
     });
 
-    return result.toTextStreamResponse();
+    // 3. Traducimos mensajes al formato de Google
+    const history = messages.slice(0, -1).map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: typeof m.content === 'string' ? m.content : m.parts?.[0]?.text || '' }],
+    }));
+
+    const userMessage = messages[messages.length - 1].content;
+
+    // 4. Llamada en streaming
+    const geminiStream = await model.generateContentStream({
+      contents: [...history, { role: 'user', parts: [{ text: userMessage }] }],
+    });
+
+    // 5. Convertimos a stream compatible con tu interfaz
+    const stream = GoogleGenerativeAIStream(geminiStream);
+    return new StreamingTextResponse(stream);
+
   } catch (error: any) {
-    console.error('ERROR CRÍTICO:', error.message);
+    console.error('ERROR NATIVO:', error.message);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
