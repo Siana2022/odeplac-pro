@@ -4,24 +4,26 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-archivo: var(--font-archivo); /* Nueva fuente */
-  --color-background: #295693;        /* Tu azul corporativo */
-  --color-foreground: #ffffff;        /* Texto blanco por defecto */
+  --font-archivo: var(--font-archivo);
   
-  /* Ajustamos el resto para que no desentone */
+  /* Colores base para tu tema azul */
+  --color-background: #295693;
+  --color-foreground: #ffffff;
+  
+  /* Colores de componentes */
   --color-card: #1e3f6d;
   --color-card-foreground: #ffffff;
   --color-popover: #1e3f6d;
   --color-popover-foreground: #ffffff;
+  
+  /* Colores primarios (Blanco sobre azul) */
   --color-primary: #ffffff;
   --color-primary-foreground: #295693;
-  --color-secondary: rgba(255, 255, 255, 0.1);
-  --color-secondary-foreground: #ffffff;
-  --color-muted: rgba(255, 255, 255, 0.05);
-  --color-muted-foreground: #cbd5e1;
-  --color-accent: rgba(255, 255, 255, 0.15);
-  --color-accent-foreground: #ffffff;
+  
+  /* Bordes y estados */
   --color-border: rgba(255, 255, 255, 0.1);
+  --color-input: rgba(255, 255, 255, 0.2);
+  --color-ring: #ffffff; /* Color para el foco de los inputs */
 }
 
 :root {
@@ -32,12 +34,20 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    /* Eliminamos el outline-ring/50 que rompía el build */
+    @apply border-border;
   }
+  
   body {
-    background-color: #295693; /* Forzamos el azul */
-    color: #ffffff;           /* Forzamos texto blanco */
+    background-color: #295693;
+    color: #ffffff;
     font-family: var(--font-archivo), sans-serif;
     min-height: 100vh;
+    margin: 0;
+  }
+
+  /* Aseguramos que los inputs se vean bien sobre el fondo azul */
+  input, textarea, select {
+    @apply bg-white/10 border-white/20 text-white placeholder:text-white/50;
   }
 }
