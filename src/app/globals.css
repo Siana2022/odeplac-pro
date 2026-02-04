@@ -5,10 +5,11 @@
 
 @theme inline {
   --font-archivo: var(--font-archivo);
+  /* REGLA DE ORO: El background SIEMPRE es tu azul */
   --color-background: #295693;
   --color-foreground: #ffffff;
-  --color-sidebar: #1e3f6d;
-  --color-border: rgba(255, 255, 255, 0.1);
+  --color-card: #ffffff;
+  --color-card-foreground: #1e293b;
 }
 
 :root {
@@ -17,21 +18,25 @@
 }
 
 @layer base {
-  html, body {
+  /* Forzamos el azul en la raíz */
+  html, body, #__next, [data-v-app] {
     background-color: #295693 !important;
-    color: #ffffff; /* Quitamos el !important de aquí */
+    color: #ffffff;
     font-family: var(--font-archivo), sans-serif;
-    margin: 0;
-    min-height: 100vh;
   }
 
-  /* Forzamos blanco solo en el cuerpo, pero permitimos cambios en las cajas */
-  body {
-    @apply text-white;
-  }
-
-  /* Las clases de fondo de shadcn/ui ahora serán azules por defecto */
-  .bg-background {
+  /* 🚨 ELIMINADOR DE BLANCOS: Esto busca cualquier fondo claro y lo vuelve azul */
+  main, section, .bg-slate-50, .bg-gray-50, .bg-zinc-50 {
     background-color: #295693 !important;
+  }
+
+  /* Mantenemos las tarjetas blancas con texto negro como en tu pipeline */
+  .card, [class*="Card"] {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+  }
+  
+  .card *, [class*="Card"] * {
+    color: #1e293b !important;
   }
 }
