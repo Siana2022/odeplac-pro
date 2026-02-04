@@ -22,11 +22,11 @@ import { PDFDownloadButton } from '@/components/shared/PDFDownloadButton'
 export default function ObraDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [obra, setObra] = useState<Obra | null>(null)
-  const [cliente, setCliente] = useState<Cliente | null>(null)
   const [items, setItems] = useState<(PresupuestoItem & { materiales: Material })[]>([])
   const [loading, setLoading] = useState(true)
   const [generatingMemory, setGeneratingMemory] = useState(false)
-  const [invoice, setInvoice] = useState<Record<string, unknown> | null>(null)
+  // Ajustamos el tipo para que sea más amigable con TypeScript
+  const [invoice, setInvoice] = useState<any | null>(null)
   const [emitting, setEmitting] = useState(false)
 
   const fetchData = async () => {
@@ -40,7 +40,7 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
     if (itemsData) setItems(itemsData as (PresupuestoItem & { materiales: Material })[])
 
     const { data: invoiceData } = await supabase.from('facturas').select('*').eq('obra_id', id).single()
-    if (invoiceData) setInvoice(invoiceData as Record<string, unknown>)
+    if (invoiceData) setInvoice(invoiceData)
 
     setLoading(false)
   }
@@ -91,8 +91,8 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
-  if (loading) return <div>Cargando obra...</div>
-  if (!obra) return <div>Obra no encontrada</div>
+  if (loading) return <div className="p-8 text-center text-muted-foreground">Cargando obra...</div>
+  if (!obra) return <div className="p-8 text-center text-destructive">Obra no encontrada</div>
 
   return (
     <div className="space-y-6">
@@ -247,21 +247,22 @@ export default function ObraDetailPage({ params }: { params: Promise<{ id: strin
                  {invoice ? (
                    <div className="flex items-start space-x-6 p-4 bg-zinc-50 rounded-lg">
                       <div className="flex-1 space-y-2">
-                        <p className="text-sm"><strong>Nº Factura:</strong> {invoice.numero_factura}</p>
-                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Actual:</strong> {invoice.hash}</p>
-                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Anterior:</strong> {invoice.prev_hash}</p>
+                        {/* 🛠️ FIJACIÓN DE TIPOS AQUÍ */}
+                        <p className="text-sm"><strong>Nº Factura:</strong> {String(invoice.numero_factura)}</p>
+                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Actual:</strong> {String(invoice.hash)}</p>
+                        <p className="text-sm text-zinc-500 font-mono text-[10px] break-all"><strong>Hash Anterior:</strong> {String(invoice.prev_hash)}</p>
                         <div className="flex items-center mt-4 text-green-700 text-xs font-bold">
                           <CheckCircle2 className="mr-1 h-3 w-3" /> REGISTRADO EN AEAT 2026
                         </div>
                       </div>
                       <div className="text-center space-y-2">
-                        <img src={invoice.qr_code} alt="QR Verifactu" className="h-24 w-24 border bg-white" />
+                        <img src={String(invoice.qr_code)} alt="QR Verifactu" className="h-24 w-24 border bg-white" />
                         <p className="text-[10px] text-zinc-500">Escanea para verificar</p>
                       </div>
                    </div>
                  ) : (
                    <div className="text-center py-6 text-muted-foreground italic text-sm">
-                      La obra está terminada. Puede proceder a la emisión legal de la factura.
+                     La obra está terminada. Puede proceder a la emisión legal de la factura.
                    </div>
                  )}
                </CardContent>
