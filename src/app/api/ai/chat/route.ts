@@ -2,19 +2,19 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@/lib/supabase/server';
 import { getSystemInstruction } from '@/lib/ai/gemini';
 
-// Forzamos el entorno de ejecución
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
+// Inicializamos la API fuera del handler para mayor rapidez
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || '');
 
 export async function POST(req: Request) {
-  console.log('--- INICIANDO ODEPLAC CHAT V1 ---');
+  console.log('--- INTENTO DEFINITIVO TRAS PAUSA - V1 ---');
 
   try {
     const { clienteId, messages } = await req.json();
     
-    // 1. Datos de Supabase
+    // 1. Conexión a Supabase
     const supabase = await createClient();
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
     const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
@@ -26,29 +26,24 @@ export async function POST(req: Request) {
       materialesDisponibles: materiales || []
     });
 
-    // 2. Inicializar Modelo
+    // 2. Configuración del modelo SIN campos experimentales
+    // En la v1 estable, las instrucciones de sistema se pasan de forma especial
     const model = genAI.getGenerativeModel(
       { model: "gemini-1.5-flash" },
       { apiVersion: 'v1' }
     );
 
-    // 3. Formatear historial con inyección de sistema
-    const history = (messages || []).map((m: any, index: number) => {
-      let text = typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '');
-      
-      if (index === 0 && m.role === 'user') {
-        text = `CONTEXTO DEL SISTEMA:\n${systemPrompt}\n\nPREGUNTA:\n${text}`;
-      }
+    // 3. Formateo de historial compatible con v1
+    const history = (messages || []).map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: typeof m.content === 'string' ? m.content : (m.parts?.[0]?.text || '') }],
+    }));
 
-      return {
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text }],
-      };
-    });
-
-    // 4. Generar contenido en streaming
+    // 4. Inyectamos el sistema como el primer mensaje del historial si es necesario
+    // O mejor aún, usamos el parámetro nativo pero bien formado
     const result = await model.generateContentStream({
       contents: history,
+      systemInstruction: { parts: [{ text: systemPrompt }] } // <--- ESTO es lo que la v1 espera
     });
 
     const encoder = new TextEncoder();
@@ -61,8 +56,8 @@ export async function POST(req: Request) {
               controller.enqueue(encoder.encode(chunkText));
             }
           }
-        } catch (err) {
-          console.error("Error en el flujo:", err);
+        } catch (e) {
+          console.error("Stream error:", e);
         } finally {
           controller.close();
         }
@@ -77,7 +72,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error('ERROR CRÍTICO EN API:', error.message);
+    console.error('ERROR EN EL ÚLTIMO INTENTO:', error.message);
     return new Response(JSON.stringify({ error: error.message }), { 
       status: 500,
       headers: { 'Content-Type': 'application/json' }
