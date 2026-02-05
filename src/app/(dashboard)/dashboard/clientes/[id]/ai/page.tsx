@@ -36,39 +36,44 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
-  const { messages = [], status, append, sendMessage } = chat as any
+  const { messages = [], status, append } = chat as any
   const isLoading = status === 'submitted' || status === 'streaming'
 
   const descargarPDF = (content: string) => {
     const lines = content.split('\n');
     const tableLines = lines.filter(l => l.includes('|') && !l.includes('---'));
-    const rows = tableLines.slice(1).filter(r => !r.toLowerCase().includes('total'));
     
-    const items = rows.map(r => {
-      const cols = r.split('|').map(c => c.trim()).filter(c => c !== '');
-      return [cols[0], cols[1], cols[2], cols[3]];
-    });
+    const items = tableLines.slice(1)
+      .filter(l => !l.toLowerCase().includes('total'))
+      .map(l => {
+        const cols = l.split('|').map(c => c.trim()).filter(c => c !== '');
+        return [cols[0], cols[1], cols[2], cols[3]];
+      });
 
     const totalLine = tableLines.find(l => l.toLowerCase().includes('total'));
-    const totalValue = totalLine ? totalLine.split('|').pop()?.replace(/[^0-9,.]/g, '').trim() : "0";
+    let subtotalValue = 0;
+    if (totalLine) {
+        const cols = totalLine.split('|').map(c => c.trim()).filter(c => c !== '');
+        const lastCol = cols[cols.length - 1];
+        subtotalValue = parseFloat(lastCol.replace(/[^0-9,.]/g, '').replace(',', '.'));
+    }
 
-    // ✅ Usamos (cliente as any) para que no dé error con nif_cif ni direccion
     generarPDFPresupuesto({
-      clienteNombre: cliente?.nombre || "Cliente ODEPLAC",
+      clienteNombre: cliente?.nombre || "Cliente",
       clienteNif: (cliente as any)?.nif_cif || "-",
       clienteDireccion: (cliente as any)?.direccion || "-",
+      obraTitulo: "Propuesta Técnica ODEPLAC",
       items: items,
-      subtotal: totalValue,
-      iva: (parseFloat(totalValue || "0") * 0.21).toFixed(2),
-      total: (parseFloat(totalValue || "0") * 1.21).toFixed(2)
+      subtotal: subtotalValue.toFixed(2),
+      iva: (subtotalValue * 0.21).toFixed(2),
+      total: (subtotalValue * 1.21).toFixed(2)
     });
-};
+  };
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = chatInput.trim();
-    if (!val || isLoading) return;
-    if (typeof append === 'function') append({ role: 'user', content: val });
+    if (!chatInput.trim() || isLoading) return;
+    if (typeof append === 'function') append({ role: 'user', content: chatInput.trim() });
     setChatInput('');
   }
 
@@ -76,12 +81,12 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     <div className="h-[calc(100vh-8rem)] flex flex-col space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Link href={`/dashboard/clientes/${id}`}><Button variant="outline" size="icon"><ChevronLeft className="h-4 w-4" /></Button></Link>
-          <h1 className="text-3xl font-bold flex items-center">Asistente IA <Sparkles className="ml-2 h-6 w-6 text-zinc-400" /></h1>
+          <Link href={`/dashboard/clientes/${id}`}><Button variant="outline" size="icon"><ChevronLeft size={16}/></Button></Link>
+          <h1 className="text-3xl font-bold">Asistente IA <Sparkles className="inline ml-2 text-zinc-400" /></h1>
         </div>
         <div className="text-right">
           <p className="text-sm font-medium">{cliente?.nombre}</p>
-          <p className="text-[10px] uppercase tracking-widest text-green-600 font-bold">Datos reales conectados</p>
+          <p className="text-[10px] uppercase tracking-widest text-green-600 font-bold">Base de datos en tiempo real</p>
         </div>
       </div>
 
@@ -103,8 +108,8 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
               </div>
               
               {m.role === 'model' && m.content.includes('|') && (
-                <Button onClick={() => descargarPDF(m.content)} className="mt-3 ml-11 bg-green-600 hover:bg-green-700 text-xs h-8 rounded-full">
-                  <FileDown className="mr-2 h-3 w-3" /> Descargar Presupuesto Oficial PDF
+                <Button onClick={() => descargarPDF(m.content)} className="mt-3 ml-11 bg-green-600 hover:bg-green-700 text-xs h-8 rounded-full shadow-lg">
+                  <FileDown className="mr-2 h-3 w-3" /> Generar Presupuesto PDF
                 </Button>
               )}
             </div>
@@ -113,7 +118,12 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
 
         <div className="p-4 bg-white border-t">
           <form onSubmit={handleManualSubmit} className="flex space-x-2 max-w-4xl mx-auto">
-            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Haz un cálculo..." className="flex-1 h-11 px-4 rounded-full border bg-zinc-50 text-sm outline-none" />
+            <input 
+              value={chatInput} 
+              onChange={(e) => setChatInput(e.target.value)} 
+              placeholder="Pregunta o pide un cálculo..." 
+              className="flex-1 h-11 px-4 rounded-full border bg-zinc-50 text-zinc-900 text-sm outline-none focus:ring-2 focus:ring-[#295693]" 
+            />
             <Button type="submit" disabled={isLoading} className="h-11 w-11 rounded-full bg-zinc-900"><Send size={18} /></Button>
           </form>
         </div>

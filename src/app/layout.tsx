@@ -20,27 +20,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [messages, setMessages] = useState<{role: string, content: string}[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Función para extraer datos de la tabla de la IA
   const procesarYDescargarPDF = (content: string) => {
     const lines = content.split('\n');
     const tableLines = lines.filter(l => l.includes('|') && !l.includes('---'));
     
-    // Saltamos la cabecera
-    const rows = tableLines.slice(1).filter(r => !r.toLowerCase().includes('total'));
-    const items = rows.map(r => {
-      const cols = r.split('|').map(c => c.trim()).filter(c => c !== '');
-      return [cols[0], cols[1], cols[2], cols[3]]; // [Desc, Cant, Precio, Coste]
-    });
+    // Extraer filas de materiales
+    const items = tableLines.slice(1)
+      .filter(l => !l.toLowerCase().includes('total'))
+      .map(l => {
+        const cols = l.split('|').map(c => c.trim()).filter(c => c !== '');
+        return [cols[0], cols[1], cols[2], cols[3]];
+      });
 
+    // Extraer el número del total
     const totalLine = tableLines.find(l => l.toLowerCase().includes('total'));
-    const totalValue = totalLine ? totalLine.split('|').pop()?.replace(/[^0-9,.]/g, '').trim() : "0";
+    let subtotalValue = 0;
+    if (totalLine) {
+        const cols = totalLine.split('|').map(c => c.trim()).filter(c => c !== '');
+        const lastCol = cols[cols.length - 1];
+        subtotalValue = parseFloat(lastCol.replace(/[^0-9,.]/g, '').replace(',', '.'));
+    }
 
     generarPDFPresupuesto({
       clienteNombre: "Consulta General",
+      clienteNif: "-",
+      clienteDireccion: "-",
+      obraTitulo: "Presupuesto Informativo",
       items: items,
-      subtotal: totalValue,
-      iva: (parseFloat(totalValue || "0") * 0.21).toFixed(2),
-      total: (parseFloat(totalValue || "0") * 1.21).toFixed(2)
+      subtotal: subtotalValue.toFixed(2),
+      iva: (subtotalValue * 0.21).toFixed(2),
+      total: (subtotalValue * 1.21).toFixed(2)
     });
   };
 
@@ -79,14 +88,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
                 <span className="font-bold">Asistente ODEPLAC</span>
               </div>
-              <X className="cursor-pointer hover:rotate-90 transition-transform" size={20} onClick={() => setIsOpen(false)} />
+              <X className="cursor-pointer" size={20} onClick={() => setIsOpen(false)} />
             </div>
 
             <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50">
               {messages.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div className={`max-w-[90%] p-3 rounded-2xl text-sm shadow-sm border ${
-                    m.role === 'user' ? 'bg-[#295693] text-white border-[#1e3d6b] rounded-tr-none' : 'bg-white text-zinc-800 border-zinc-200 rounded-tl-none'
+                    m.role === 'user' ? 'bg-[#295693] text-white border-[#1e3d6b]' : 'bg-white text-zinc-800 border-zinc-200'
                   }`}>
                     <ReactMarkdown 
                       remarkPlugins={[remarkGfm]}
@@ -99,14 +108,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       {m.content}
                     </ReactMarkdown>
                   </div>
-                  
-                  {/* BOTÓN DE PDF (Aparece si hay tabla) */}
                   {m.role === 'model' && m.content.includes('|') && (
                     <button 
                       onClick={() => procesarYDescargarPDF(m.content)}
-                      className="mt-2 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-[10px] px-3 py-1.5 rounded-full transition-colors shadow-sm"
+                      className="mt-2 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-[10px] px-3 py-1.5 rounded-full shadow-sm"
                     >
-                      <FileDown size={14} /> Descargar Presupuesto PDF
+                      <FileDown size={14} /> Descargar PDF
                     </button>
                   )}
                 </div>
@@ -115,7 +122,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
 
             <form onSubmit={handleSend} className="p-4 bg-white border-t border-zinc-100 flex gap-2">
-              <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe tu consulta..." className="flex-1 bg-zinc-100 border-none rounded-full px-4 py-2 text-sm outline-none" />
+              <input 
+                value={input} 
+                onChange={(e) => setInput(e.target.value)} 
+                placeholder="Escribe aquí..." 
+                className="flex-1 bg-zinc-100 rounded-full px-4 py-2 text-sm text-zinc-900 outline-none" 
+              />
               <button type="submit" className="bg-[#295693] text-white p-2 rounded-full"><Send size={18} /></button>
             </form>
           </div>
