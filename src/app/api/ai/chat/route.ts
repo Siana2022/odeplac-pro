@@ -1,49 +1,54 @@
 import { createClient } from '@/lib/supabase/server';
-import { getSystemInstruction } from '@/lib/ai/gemini';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
     const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
-    const { clienteId, messages } = await req.json();
+    const { messages } = await req.json();
     const supabase = await createClient();
     
-    // 1. OBTENEMOS LOS MATERIALES (Para que la IA sepa los precios de Odeplac)
-    const { data: materiales } = await supabase.from('materiales').select('*');
-    
-    // 2. OBTENEMOS DATOS DEL CLIENTE SI EXISTE (Para el chat específico de obra)
-    let clienteData = null;
-    let obrasData = [];
-    
-    if (clienteId && clienteId !== 'general') {
-      const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
-      const { data: obras } = await supabase.from('obras').select('*, presupuestos_items(*, materiales(*))').eq('cliente_id', clienteId);
-      clienteData = cliente;
-      obrasData = (obras as any[]) ?? [];
-    }
+    // 1. CONSULTA DE DATOS (Asegurando nombres exactos de tu radiografía)
+    const [mats, obs] = await Promise.all([
+      supabase.from('materiales').select('nombre, precio_coste, unidad'),
+      supabase.from('obras').select('titulo, estado, porcentaje_avance, total_presupuesto')
+    ]);
 
-    // 3. CONSTRUIMOS LAS INSTRUCCIONES MAESTRAS
-    const baseSystemPrompt = getSystemInstruction({ cliente: clienteData, obras: obrasData });
-    
-    const materialesPrompt = materiales && materiales.length > 0 
-      ? `\n\nCATÁLOGO DE MATERIALES DE ODEPLAC (Usa estos precios): \n${materiales.map(m => `- ${m.nombre}: ${m.precio_unitario}€/${m.unidad_medida}`).join('\n')}`
-      : "";
+    // 2. FORMATEO DEL CATÁLOGO PARA LA IA (Sin fallos de undefined)
+    const listaMateriales = mats.data?.map(m => 
+      `- ${m.nombre}: ${m.precio_coste}€ por ${m.unidad}`
+    ).join('\n') || "No hay materiales registrados.";
 
-    const systemPrompt = `${baseSystemPrompt}${materialesPrompt}
-    REGLA ADICIONAL: Eres el asistente de Juanjo en ODEPLAC. Si te preguntan por precios o presupuestos, prioriza SIEMPRE la lista de materiales anterior.`;
+    const listaObras = obs.data?.map(o => 
+      `- ${o.titulo}: Estado ${o.estado} (${o.porcentaje_avance}% avance)`
+    ).join('\n') || "No hay obras activas.";
 
-    // 4. PREPARAMOS LOS MENSAJES PARA GEMINI
+    // 3. INSTRUCCIONES MAESTRAS DE FORMATO
+    const systemPrompt = `
+      Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC PRO. 
+      
+      DATOS DE LA EMPRESA:
+      ${listaMateriales}
+      ${listaObras}
+
+      REGLAS DE RESPUESTA:
+      1. Juanjo es el jefe. Sé directo y profesional.
+      2. Si te pide un cálculo o presupuesto, preséntalo SIEMPRE en una TABLA de Markdown.
+      3. Cada concepto debe ir en una fila distinta.
+      4. Incluye una fila final con el "TOTAL ESTIMADO" en negrita.
+      5. Usa los precios de la lista: Placa Estándar (6.50€), Montante (4.15€), etc.
+    `;
+
+    // 4. PREPARAR MENSAJE PARA GEMINI
     const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || '' }]
     }));
 
     if (contents.length > 0) {
-      contents[0].parts[0].text = `Instrucciones: ${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
+      contents[0].parts[0].text = `CONTEXTO:\n${systemPrompt}\n\nPREGUNTA DE JUANJO:\n${contents[0].parts[0].text}`;
     }
 
-    // 5. LLAMADA A GEMINI CON STREAMING (Mantenemos tu versión 2.5-flash)
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${key}`,
       {
@@ -55,7 +60,6 @@ export async function POST(req: Request) {
 
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
-
     const transformStream = new TransformStream({
       transform(chunk, controller) {
         const text = decoder.decode(chunk);
@@ -77,7 +81,6 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("Error en Chat API:", error);
     return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   }
 }
