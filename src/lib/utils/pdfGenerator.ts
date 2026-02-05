@@ -4,9 +4,9 @@ import autoTable from 'jspdf-autotable';
 export const generarPDFPresupuesto = (datos: any) => {
   const doc = new jsPDF();
   
-  // 1. ENCABEZADO - DATOS ODEPLAC
+  // 1. CABECERA - ODEPLAC
   doc.setFontSize(22);
-  doc.setTextColor(41, 86, 147); // Azul corporativo
+  doc.setTextColor(41, 86, 147); 
   doc.setFont("helvetica", "bold");
   doc.text("ODEPLAC", 14, 20);
   
@@ -18,11 +18,10 @@ export const generarPDFPresupuesto = (datos: any) => {
   doc.text("CIF: B70725528 | Tel: 645735319", 14, 36);
   doc.text("E-mail: odeplac1@gmail.com | www.odeplac.es", 14, 41);
 
-  // Línea divisoria
   doc.setDrawColor(230);
   doc.line(14, 45, 196, 45);
   
-  // 2. DATOS DEL CLIENTE (Lado izquierdo)
+  // 2. RECEPTOR (ZONA PERSONALIZADA)
   doc.setFontSize(10);
   doc.setTextColor(0);
   doc.setFont("helvetica", "bold");
@@ -32,49 +31,35 @@ export const generarPDFPresupuesto = (datos: any) => {
   doc.text(`DIRECCIÓN: ${datos.clienteDireccion}`, 14, 67);
   doc.text(`OBRA: ${datos.obraTitulo}`, 14, 73);
 
-  // 3. DATOS DEL DOCUMENTO (Lado derecho)
   doc.text(`DOCUMENTO N°: PRE-${Math.floor(1000 + Math.random() * 9000)}`, 140, 55);
   doc.text(`FECHA: ${new Date().toLocaleDateString('es-ES')}`, 140, 61);
 
-  // 4. TABLA DE CONCEPTOS
+  // 3. TABLA
   autoTable(doc, {
     startY: 80,
     head: [['DESCRIPCIÓN', 'Cant.', 'Precio unitario', 'Coste']],
     body: datos.items,
-    headStyles: { fillColor: [41, 86, 147], textColor: [255, 255, 255], fontStyle: 'bold' },
+    headStyles: { fillColor: [41, 86, 147], textColor: [255, 255, 255] },
     styles: { fontSize: 9, cellPadding: 3 },
-    columnStyles: {
-      0: { cellWidth: 100 },
-      1: { halign: 'center' },
-      2: { halign: 'right' },
-      3: { halign: 'right' }
-    },
+    columnStyles: { 3: { halign: 'right' } },
     theme: 'grid'
   });
 
   const finalY = (doc as any).lastAutoTable.finalY + 10;
+  const subtotal = parseFloat(datos.subtotal) || 0;
 
-  // 5. TOTALES (Alineados a la derecha como en Minicube)
-  doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
-  doc.text(`SUBTOTAL:`, 140, finalY);
+  doc.text(`SUBTOTAL: ${subtotal.toFixed(2)} €`, 190, finalY, { align: 'right' });
   doc.setFont("helvetica", "normal");
-  doc.text(`${datos.subtotal} €`, 190, finalY, { align: 'right' });
-  
-  doc.text(`IVA (21%):`, 140, finalY + 7);
-  doc.text(`${datos.iva} €`, 190, finalY + 7, { align: 'right' });
-  
+  doc.text(`IVA (21%): ${(subtotal * 0.21).toFixed(2)} €`, 190, finalY + 7, { align: 'right' });
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
-  doc.text(`TOTAL FINAL:`, 140, finalY + 16);
-  doc.text(`${datos.total} €`, 190, finalY + 16, { align: 'right' });
+  doc.text(`TOTAL FINAL: ${(subtotal * 1.21).toFixed(2)} €`, 190, finalY + 16, { align: 'right' });
 
-  // 6. PIE DE PÁGINA
   doc.setFontSize(8);
   doc.setTextColor(100);
-  doc.setFont("helvetica", "normal");
   doc.text("FORMA DE PAGO: TRANSFERENCIA BANCARIA", 14, finalY + 30);
-  doc.text(`IBAN: ES18 3058 2237 9927 2001 4556 (Banco Sabadell)`, 14, finalY + 35);
+  doc.text("IBAN: ES18 3058 2237 9927 2001 4556", 14, finalY + 35);
 
   doc.save(`Presupuesto_ODEPLAC_${datos.clienteNombre.replace(/\s+/g, '_')}.pdf`);
 };

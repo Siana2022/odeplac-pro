@@ -8,31 +8,22 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     const supabase = await createClient();
     
-    const [mats, obs] = await Promise.all([
-      supabase.from('materiales').select('nombre, precio_coste, unidad'),
-      supabase.from('obras').select('titulo, estado, porcentaje_avance, total_presupuesto')
+    const [mats] = await Promise.all([
+      supabase.from('materiales').select('nombre, precio_coste, unidad')
     ]);
 
-    const listaMateriales = mats.data?.map(m => `- ${m.nombre}: ${m.precio_coste}€/${m.unidad}`).join('\n');
-    const listaObras = obs.data?.map(o => `- ${o.titulo}: ${o.estado} (${o.porcentaje_avance}%)`).join('\n');
+    const listaMateriales = mats.data?.map(m => `- ${m.nombre}: ${m.precio_coste}€/${m.unidad}`).join('\n') || "";
 
     const systemPrompt = `
-      Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC PRO. 
+      Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC. 
       
-      DATOS:
+      MATERIALES Y PRECIOS:
       ${listaMateriales}
-      ${listaObras}
 
-      REGLAS DE FORMATO (ESTRICTAS):
-      1. PROHIBIDO usar etiquetas HTML (como <br>, <b>, <table>).
-      2. Usa SOLO Markdown puro. 
-      3. Para las tablas, usa este formato exacto y deja una línea en blanco antes y después:
-      
-      | Concepto | Cantidad | Precio | Total |
-      | :--- | :--- | :--- | :--- |
-      | Texto | Numero | Numero | Numero |
-
-      4. Si no hay datos, dilo claramente sin inventar.
+      INSTRUCCIONES:
+      1. Si Juanjo te pide un cálculo, responde con una tabla Markdown clara.
+      2. No hace falta que preguntes por el nombre del cliente, Juanjo lo seleccionará directamente desde un menú en la pantalla.
+      3. Sé directo y profesional.
     `;
 
     const contents = (messages || []).map((m: any) => ({
