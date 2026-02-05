@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       `- ${o.titulo}: Estado ${o.estado} (${o.porcentaje_avance}% avance)`
     ).join('\n') || "No hay obras activas.";
 
-    // 3. INSTRUCCIONES MAESTRAS DE FORMATO
+    // 3. INSTRUCCIONES MAESTRAS DE FORMATO (REFORZADO)
     const systemPrompt = `
       Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC PRO. 
       
@@ -31,12 +31,18 @@ export async function POST(req: Request) {
       ${listaMateriales}
       ${listaObras}
 
-      REGLAS DE RESPUESTA:
-      1. Juanjo es el jefe. Sé directo y profesional.
-      2. Si te pide un cálculo o presupuesto, preséntalo SIEMPRE en una TABLA de Markdown.
-      3. Cada concepto debe ir en una fila distinta.
-      4. Incluye una fila final con el "TOTAL ESTIMADO" en negrita.
-      5. Usa los precios de la lista: Placa Estándar (6.50€), Montante (4.15€), etc.
+      REGLAS DE FORMATO (OBLIGATORIAS):
+      1. Responde SIEMPRE usando saltos de línea claros.
+      2. Si generas una tabla, DEJA UNA LÍNEA EN BLANCO antes y después de la tabla.
+      3. No pongas la tabla en la misma línea que el texto de saludo.
+      4. Cada fila de la tabla debe estar en una línea nueva de texto.
+      5. La tabla debe tener este formato exacto:
+         
+         | Concepto | Cantidad | Precio Coste | Total |
+         | :--- | :--- | :--- | :--- |
+         | [Material] | [Cantidad] | [Precio] | [Total] |
+         
+      6. Sé directo: Juanjo es el jefe y no quiere rollos comerciales.
     `;
 
     // 4. PREPARAR MENSAJE PARA GEMINI
