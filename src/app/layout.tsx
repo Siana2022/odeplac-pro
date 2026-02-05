@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { Archivo } from "next/font/google";
-import { MessageCircle, X, Send, Loader2 } from "lucide-react"; 
+import { MessageCircle, X, Send, Loader2, FileDown } from "lucide-react"; 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { generarPDFPresupuesto } from '@/lib/utils/pdfGenerator';
 import "./globals.css";
 
 const archivo = Archivo({
@@ -19,10 +20,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [messages, setMessages] = useState<{role: string, content: string}[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Función para extraer datos de la tabla de la IA
+  const procesarYDescargarPDF = (content: string) => {
+    const lines = content.split('\n');
+    const tableLines = lines.filter(l => l.includes('|') && !l.includes('---'));
+    
+    // Saltamos la cabecera
+    const rows = tableLines.slice(1).filter(r => !r.toLowerCase().includes('total'));
+    const items = rows.map(r => {
+      const cols = r.split('|').map(c => c.trim()).filter(c => c !== '');
+      return [cols[0], cols[1], cols[2], cols[3]]; // [Desc, Cant, Precio, Coste]
+    });
+
+    const totalLine = tableLines.find(l => l.toLowerCase().includes('total'));
+    const totalValue = totalLine ? totalLine.split('|').pop()?.replace(/[^0-9,.]/g, '').trim() : "0";
+
+    generarPDFPresupuesto({
+      clienteNombre: "Consulta General",
+      items: items,
+      subtotal: totalValue,
+      iva: (parseFloat(totalValue || "0") * 0.21).toFixed(2),
+      total: (parseFloat(totalValue || "0") * 1.21).toFixed(2)
+    });
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-
     const userMessage = { role: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput("");
@@ -32,16 +56,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       const response = await fetch('/api/ai/chat', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          messages: [...messages, userMessage],
-          clienteId: 'general'
-        })
+        body: JSON.stringify({ messages: [...messages, userMessage], clienteId: 'general' })
       });
-
       const data = await response.text();
       setMessages(prev => [...prev, { role: 'model', content: data }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'model', content: "Error al conectar. Revisa la consola." }]);
+      setMessages(prev => [...prev, { role: 'model', content: "Error de conexión." }]);
     } finally {
       setIsLoading(false);
     }
@@ -52,10 +72,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${archivo.variable} antialiased font-archivo bg-[#295693]`}>
         {children}
         
-        {/* VENTANA DE CHAT GENERAL */}
         {isOpen && (
-          <div className="fixed bottom-28 right-10 z-[99999] w-96 h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-zinc-200 animate-in fade-in slide-in-from-bottom-4">
-            {/* Cabecera */}
+          <div className="fixed bottom-28 right-10 z-[99999] w-96 h-[550px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-zinc-200 animate-in fade-in slide-in-from-bottom-4">
             <div className="bg-[#295693] p-4 text-white flex justify-between items-center shadow-md">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
@@ -64,70 +82,46 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <X className="cursor-pointer hover:rotate-90 transition-transform" size={20} onClick={() => setIsOpen(false)} />
             </div>
 
-            {/* Mensajes */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50">
-              {messages.length === 0 && (
-                <p className="text-zinc-400 text-center text-sm mt-10">
-                  Hola Juanjo, ¿en qué puedo ayudarte hoy? <br/> Pregúntame sobre normativa o gestión.
-                </p>
-              )}
               {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                   <div className={`max-w-[90%] p-3 rounded-2xl text-sm shadow-sm border ${
-                    m.role === 'user' 
-                      ? 'bg-[#295693] text-white border-[#1e3d6b] rounded-tr-none' 
-                      : 'bg-white text-zinc-800 border-zinc-200 rounded-tl-none'
+                    m.role === 'user' ? 'bg-[#295693] text-white border-[#1e3d6b] rounded-tr-none' : 'bg-white text-zinc-800 border-zinc-200 rounded-tl-none'
                   }`}>
                     <ReactMarkdown 
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        table: ({node, ...props}) => (
-                          <div className="overflow-x-auto my-2">
-                            <table className="border-collapse border border-zinc-300 w-full text-[11px]" {...props} />
-                          </div>
-                        ),
-                        th: ({node, ...props}) => <th className="border border-zinc-300 bg-zinc-100 p-1 font-bold text-zinc-700" {...props} />,
+                        table: ({node, ...props}) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-zinc-300 w-full text-[10px]" {...props} /></div>,
+                        th: ({node, ...props}) => <th className="border border-zinc-300 bg-zinc-100 p-1 font-bold" {...props} />,
                         td: ({node, ...props}) => <td className="border border-zinc-300 p-1" {...props} />,
                       }}
                     >
                       {m.content}
                     </ReactMarkdown>
                   </div>
+                  
+                  {/* BOTÓN DE PDF (Aparece si hay tabla) */}
+                  {m.role === 'model' && m.content.includes('|') && (
+                    <button 
+                      onClick={() => procesarYDescargarPDF(m.content)}
+                      className="mt-2 flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-[10px] px-3 py-1.5 rounded-full transition-colors shadow-sm"
+                    >
+                      <FileDown size={14} /> Descargar Presupuesto PDF
+                    </button>
+                  )}
                 </div>
               ))}
-              {isLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-zinc-100 rounded-tl-none">
-                    <Loader2 className="animate-spin text-[#295693]" size={18} />
-                  </div>
-                </div>
-              )}
+              {isLoading && <Loader2 className="animate-spin text-[#295693] ml-2" size={18} />}
             </div>
 
-            {/* Input Form */}
             <form onSubmit={handleSend} className="p-4 bg-white border-t border-zinc-100 flex gap-2">
-              <input 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Escribe tu consulta..."
-                className="flex-1 bg-zinc-100 border-none rounded-full px-4 py-2 text-sm text-zinc-800 focus:ring-2 focus:ring-[#295693] outline-none"
-              />
-              <button 
-                type="submit"
-                disabled={isLoading}
-                className="bg-[#295693] text-white p-2 rounded-full hover:scale-110 transition-transform disabled:opacity-50"
-              >
-                <Send size={18} />
-              </button>
+              <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Escribe tu consulta..." className="flex-1 bg-zinc-100 border-none rounded-full px-4 py-2 text-sm outline-none" />
+              <button type="submit" className="bg-[#295693] text-white p-2 rounded-full"><Send size={18} /></button>
             </form>
           </div>
         )}
 
-        {/* BOTÓN FLOTANTE */}
-        <button 
-          onClick={() => setIsOpen(!isOpen)}
-          className="fixed bottom-10 right-10 z-[99999] flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#295693] shadow-2xl hover:scale-110 transition-all border-none cursor-pointer"
-        >
+        <button onClick={() => setIsOpen(!isOpen)} className="fixed bottom-10 right-10 z-[99999] flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#295693] shadow-2xl transition-all">
           {isOpen ? <X size={32} /> : <MessageCircle size={32} />}
         </button>
       </body>
