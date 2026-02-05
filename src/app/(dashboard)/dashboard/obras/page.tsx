@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase/client'
 import { EstadoObra } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Plus, User, MoreHorizontal } from 'lucide-react'
-// ✅ CORRECCIÓN: 'closestCorners' ahora empieza con minúscula para evitar errores de compilación
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors, closestCorners } from '@dnd-kit/core'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -15,6 +14,7 @@ import { Progress } from '@/components/ui/progress'
 import Link from 'next/link'
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 
+// --- CONFIGURACIÓN DE COLUMNAS ---
 const states: { label: string; value: EstadoObra; color: string }[] = [
   { label: 'Leads', value: 'lead', color: 'bg-slate-200' },
   { label: 'Presupuestos', value: 'presupuesto', color: 'bg-blue-100' },
@@ -22,12 +22,19 @@ const states: { label: string; value: EstadoObra; color: string }[] = [
   { label: 'Terminados', value: 'terminado', color: 'bg-green-100' },
 ]
 
+// --- DATOS DE PRUEBA (Por si falla la conexión o está vacío) ---
+const mockObras = [
+  { id: 'mock-1', titulo: 'Reforma Loft Chueca', clientes: { nombre: 'Inversiones Madrileñas S.L.' }, estado: 'curso', porcentaje_progreso: 45, total_presupuesto: 45200 },
+  { id: 'mock-2', titulo: 'Oficinas Azca', clientes: { nombre: 'Tech Solutions Madrid' }, estado: 'presupuesto', porcentaje_progreso: 0, total_presupuesto: 12500 },
+  { id: 'mock-3', titulo: 'Hotel Gran Vía', clientes: { nombre: 'Hoteles del Sol' }, estado: 'lead', porcentaje_progreso: 0, total_presupuesto: 89000 },
+  { id: 'mock-4', titulo: 'Vivienda Las Rozas', clientes: { nombre: 'Familia García-López' }, estado: 'terminado', porcentaje_progreso: 100, total_presupuesto: 32150 },
+]
+
 export default function ObrasPage() {
   const [obras, setObras] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  // Sensores para detectar el arrastre (mínimo 5px de movimiento para empezar a mover)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
@@ -38,15 +45,27 @@ export default function ObrasPage() {
 
   const fetchObras = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('obras')
-      .select('*, clientes(*)')
-      .order('updated_at', { ascending: false })
-    if (data) setObras(data)
+    try {
+      const { data, error } = await supabase
+        .from('obras')
+        .select('*, clientes(*)')
+        .order('updated_at', { ascending: false })
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        setObras(data)
+      } else {
+        console.log("No hay obras en la DB, cargando mock data...")
+        setObras(mockObras)
+      }
+    } catch (err) {
+      console.error("Error conectando a Supabase:", err)
+      setObras(mockObras) // Si no hay conexión, mostramos los ejemplos
+    }
     setLoading(false)
   }
 
-  // LÓGICA DE ACTUALIZACIÓN AL SOLTAR LA TARJETA
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
     if (!over) return
@@ -57,20 +76,22 @@ export default function ObrasPage() {
     const obraOriginal = obras.find(o => o.id === obraId)
     if (!obraOriginal || obraOriginal.estado === nuevoEstado) return
 
-    // Actualización visual inmediata (Optimistic Update)
+    // Actualización visual rápida
     setObras(prev => prev.map(o => 
       o.id === obraId ? { ...o, estado: nuevoEstado } : o
     ))
 
-    // Actualización real en la base de datos
-    const { error } = await supabase
-      .from('obras')
-      .update({ estado: nuevoEstado })
-      .eq('id', obraId)
+    // Guardar en base de datos (si no es un mock)
+    if (!obraId.startsWith('mock-')) {
+      const { error } = await supabase
+        .from('obras')
+        .update({ estado: nuevoEstado })
+        .eq('id', obraId)
 
-    if (error) {
-      console.error("Error al mover obra:", error)
-      fetchObras() // Si hay error, recargamos los datos reales para sincronizar
+      if (error) {
+        console.error("Error al actualizar estado:", error)
+        fetchObras()
+      }
     }
   }
 
@@ -80,20 +101,25 @@ export default function ObrasPage() {
         <h1 className="text-3xl font-bold text-white">Pipeline de Obras</h1>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-white text-[#295693] hover:bg-white/90">
+            <Button className="bg-white text-[#295693] hover:bg-white/90 shadow-lg border-none font-bold">
               <Plus className="mr-2 h-4 w-4" /> Nueva Obra
             </Button>
           </DialogTrigger>
-          <DialogContent className="bg-white text-zinc-900">
-            <DialogHeader><DialogTitle>Añadir Nueva Obra</DialogTitle></DialogHeader>
-            <ObraForm onSuccess={() => { setIsDialogOpen(false); fetchObras(); }} />
+          <DialogContent className="bg-white text-zinc-900 border-none shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-[#295693]">Añadir Nueva Obra</DialogTitle>
+            </DialogHeader>
+            <ObraForm onSuccess={() => {
+              setIsDialogOpen(false)
+              fetchObras()
+            }} />
           </DialogContent>
         </Dialog>
       </div>
 
       <DndContext 
         sensors={sensors} 
-        collisionDetection={closestCorners} // ✅ CORREGIDO
+        collisionDetection={closestCorners} 
         onDragEnd={handleDragEnd}
       >
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -112,25 +138,25 @@ export default function ObrasPage() {
   )
 }
 
-// --- SUBCOMPONENTE COLUMNA ---
+// --- SUBCOMPONENTE COLUMNA (DROPPABLE) ---
 function DroppableColumn({ id, state, obras, loading }: any) {
   const { setNodeRef, isOver } = useDroppable({ id })
   
   return (
     <div 
       ref={setNodeRef}
-      className={`rounded-xl p-4 ${state.color} min-h-[600px] flex flex-col space-y-4 transition-all duration-200 ${
-        isOver ? 'ring-4 ring-white/30 bg-opacity-80 scale-[1.02]' : ''
+      className={`rounded-2xl p-4 ${state.color} min-h-[600px] flex flex-col space-y-4 transition-all duration-300 shadow-inner ${
+        isOver ? 'ring-4 ring-white/40 bg-opacity-90 scale-[1.01]' : ''
       }`}
     >
-      <div className="flex items-center justify-between px-2">
-        <h2 className="font-bold text-zinc-800 uppercase tracking-wider text-sm">{state.label}</h2>
-        <Badge className="bg-white/50 text-zinc-800 border-none">{obras.length}</Badge>
+      <div className="flex items-center justify-between px-2 mb-2">
+        <h2 className="font-black text-zinc-700 uppercase tracking-tighter text-xs">{state.label}</h2>
+        <Badge className="bg-white/60 text-zinc-800 font-bold border-none">{obras.length}</Badge>
       </div>
 
       <div className="space-y-3 flex-1">
         {loading ? (
-          <div className="text-center py-10 text-xs text-zinc-500 italic">Cargando...</div>
+          <div className="flex items-center justify-center h-20 text-zinc-400 text-xs italic">Sincronizando...</div>
         ) : (
           obras.map((obra: any) => <DraggableCard key={obra.id} obra={obra} />)
         )}
@@ -139,7 +165,7 @@ function DroppableColumn({ id, state, obras, loading }: any) {
   )
 }
 
-// --- SUBCOMPONENTE TARJETA ---
+// --- SUBCOMPONENTE TARJETA (DRAGGABLE) ---
 function DraggableCard({ obra }: any) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: obra.id,
@@ -147,7 +173,7 @@ function DraggableCard({ obra }: any) {
 
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: 50,
+    zIndex: 100,
   } : undefined
 
   return (
@@ -156,31 +182,36 @@ function DraggableCard({ obra }: any) {
       style={style} 
       {...listeners} 
       {...attributes} 
-      className={`touch-none ${isDragging ? 'opacity-50' : ''}`}
+      className={`touch-none ${isDragging ? 'opacity-30' : ''}`}
     >
-      <Card className="border-none bg-white shadow-sm hover:shadow-md cursor-grab active:cursor-grabbing transition-all">
-        <CardHeader className="p-3 pb-0">
-          <CardTitle className="text-sm font-bold text-zinc-900">{obra.titulo}</CardTitle>
-          <CardDescription className="text-[11px] flex items-center text-zinc-500">
+      <Card className="border-none bg-white shadow-md hover:shadow-xl cursor-grab active:cursor-grabbing transition-shadow rounded-xl overflow-hidden">
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-sm font-extrabold text-zinc-900 leading-tight">{obra.titulo}</CardTitle>
+          <CardDescription className="text-[10px] font-medium flex items-center text-zinc-400 mt-1 uppercase">
             <User className="mr-1 h-3 w-3" />
-            {obra.clientes?.nombre || 'Sin cliente'}
+            {obra.clientes?.nombre || 'Particular / Sin Cliente'}
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-3">
+        <CardContent className="p-4 pt-2">
           {obra.estado === 'curso' && (
-            <div className="space-y-1 mt-2">
-              <div className="flex justify-between text-[10px] text-zinc-400">
-                <span>PROGRESO</span>
+            <div className="space-y-1.5 mt-2">
+              <div className="flex justify-between text-[9px] font-black text-zinc-400">
+                <span>AVANCE</span>
                 <span>{obra.porcentaje_progreso}%</span>
               </div>
               <Progress value={obra.porcentaje_progreso} className="h-1 bg-zinc-100" />
             </div>
           )}
-          <div className="flex justify-between items-center mt-3">
-            <span className="text-sm font-bold text-[#295693]">
-              €{obra.total_presupuesto?.toLocaleString() || '0'}
-            </span>
-            <MoreHorizontal className="h-4 w-4 text-zinc-400" />
+          <div className="flex justify-between items-end mt-4">
+            <div className="flex flex-col">
+              <span className="text-[9px] text-zinc-400 font-bold uppercase">Presupuesto</span>
+              <span className="text-sm font-black text-[#295693]">
+                €{obra.total_presupuesto?.toLocaleString() || '0'}
+              </span>
+            </div>
+            <div className="bg-zinc-50 p-1.5 rounded-lg">
+               <MoreHorizontal className="h-4 w-4 text-zinc-300" />
+            </div>
           </div>
         </CardContent>
       </Card>
