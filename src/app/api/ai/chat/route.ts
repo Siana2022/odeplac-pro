@@ -8,51 +8,40 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     const supabase = await createClient();
     
-    // 1. CONSULTA DE DATOS (Asegurando nombres exactos de tu radiografía)
     const [mats, obs] = await Promise.all([
       supabase.from('materiales').select('nombre, precio_coste, unidad'),
       supabase.from('obras').select('titulo, estado, porcentaje_avance, total_presupuesto')
     ]);
 
-    // 2. FORMATEO DEL CATÁLOGO PARA LA IA (Sin fallos de undefined)
-    const listaMateriales = mats.data?.map(m => 
-      `- ${m.nombre}: ${m.precio_coste}€ por ${m.unidad}`
-    ).join('\n') || "No hay materiales registrados.";
+    const listaMateriales = mats.data?.map(m => `- ${m.nombre}: ${m.precio_coste}€/${m.unidad}`).join('\n');
+    const listaObras = obs.data?.map(o => `- ${o.titulo}: ${o.estado} (${o.porcentaje_avance}%)`).join('\n');
 
-    const listaObras = obs.data?.map(o => 
-      `- ${o.titulo}: Estado ${o.estado} (${o.porcentaje_avance}% avance)`
-    ).join('\n') || "No hay obras activas.";
-
-    // 3. INSTRUCCIONES MAESTRAS DE FORMATO (REFORZADO)
     const systemPrompt = `
       Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC PRO. 
       
-      DATOS DE LA EMPRESA:
+      DATOS:
       ${listaMateriales}
       ${listaObras}
 
-      REGLAS DE FORMATO (OBLIGATORIAS):
-      1. Responde SIEMPRE usando saltos de línea claros.
-      2. Si generas una tabla, DEJA UNA LÍNEA EN BLANCO antes y después de la tabla.
-      3. No pongas la tabla en la misma línea que el texto de saludo.
-      4. Cada fila de la tabla debe estar en una línea nueva de texto.
-      5. La tabla debe tener este formato exacto:
-         
-         | Concepto | Cantidad | Precio Coste | Total |
-         | :--- | :--- | :--- | :--- |
-         | [Material] | [Cantidad] | [Precio] | [Total] |
-         
-      6. Sé directo: Juanjo es el jefe y no quiere rollos comerciales.
+      REGLAS DE FORMATO (ESTRICTAS):
+      1. PROHIBIDO usar etiquetas HTML (como <br>, <b>, <table>).
+      2. Usa SOLO Markdown puro. 
+      3. Para las tablas, usa este formato exacto y deja una línea en blanco antes y después:
+      
+      | Concepto | Cantidad | Precio | Total |
+      | :--- | :--- | :--- | :--- |
+      | Texto | Numero | Numero | Numero |
+
+      4. Si no hay datos, dilo claramente sin inventar.
     `;
 
-    // 4. PREPARAR MENSAJE PARA GEMINI
     const contents = (messages || []).map((m: any) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content || '' }]
     }));
 
     if (contents.length > 0) {
-      contents[0].parts[0].text = `CONTEXTO:\n${systemPrompt}\n\nPREGUNTA DE JUANJO:\n${contents[0].parts[0].text}`;
+      contents[0].parts[0].text = `${systemPrompt}\n\nPregunta: ${contents[0].parts[0].text}`;
     }
 
     const response = await fetch(

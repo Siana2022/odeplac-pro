@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Archivo } from "next/font/google";
 import { MessageCircle, X, Send, Loader2 } from "lucide-react"; 
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import "./globals.css";
 
 const archivo = Archivo({
@@ -27,12 +29,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/ai/chat', { // Reutilizamos tu API de ayer
+      const response = await fetch('/api/ai/chat', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           messages: [...messages, userMessage],
-          clienteId: 'general' // Enviamos un ID genérico para que la IA sepa que es consulta general
+          clienteId: 'general'
         })
       });
 
@@ -71,12 +73,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               )}
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
+                  <div className={`max-w-[90%] p-3 rounded-2xl text-sm shadow-sm border ${
                     m.role === 'user' 
-                      ? 'bg-[#295693] text-white rounded-tr-none' 
-                      : 'bg-white text-zinc-800 shadow-sm border border-zinc-100 rounded-tl-none'
+                      ? 'bg-[#295693] text-white border-[#1e3d6b] rounded-tr-none' 
+                      : 'bg-white text-zinc-800 border-zinc-200 rounded-tl-none'
                   }`}>
-                    {m.content}
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        table: ({node, ...props}) => (
+                          <div className="overflow-x-auto my-2">
+                            <table className="border-collapse border border-zinc-300 w-full text-[11px]" {...props} />
+                          </div>
+                        ),
+                        th: ({node, ...props}) => <th className="border border-zinc-300 bg-zinc-100 p-1 font-bold text-zinc-700" {...props} />,
+                        td: ({node, ...props}) => <td className="border border-zinc-300 p-1" {...props} />,
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
                   </div>
                 </div>
               ))}

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { supabase } from '@/lib/supabase/client'
 import { Cliente } from '@/types/database'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 export default function ClientAIPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -16,7 +18,6 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
   const [chatInput, setChatInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // 🛠️ FIX: Aplicamos "as any" a la configuración para silenciar el error de TypeScript en Vercel
   const chat = useChat({
     transport: new TextStreamChatTransport({
       api: '/api/ai/chat',
@@ -46,7 +47,6 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     fetchClient()
   }, [id])
 
-  // 🛠️ FIX: Forzamos el tipado aquí también para acceder a las propiedades sin errores
   const { messages = [], error, status, append, sendMessage } = chat as any
   const isLoading = status === 'submitted' || status === 'streaming'
 
@@ -63,7 +63,6 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
     const val = (chatInput || '').trim()
     if (!val || isLoading) return
 
-    // Intentamos usar append (estándar de useChat) o sendMessage (del transport)
     if (typeof append === 'function') {
       append({ role: 'user', content: val })
     } else if (typeof sendMessage === 'function') {
@@ -96,7 +95,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
         <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4 scroll-smooth">
           {error && (
             <div className="p-3 text-xs bg-red-50 text-red-600 border border-red-100 rounded-md">
-              Error de conexión: {error.message}. Verifica tu API Key de Gemini.
+              Error de conexión: {error.message}.
             </div>
           )}
           
@@ -107,8 +106,21 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
                   {m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div className={`p-4 rounded-2xl shadow-sm border ${m.role === 'user' ? 'bg-zinc-900 text-white border-zinc-800' : 'bg-white text-zinc-800 border-zinc-200'}`}>
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                    {m.content || (m.parts && m.parts.map((p: any) => p.text).join(''))}
+                  <div className="text-sm leading-relaxed">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        table: ({node, ...props}) => (
+                          <div className="overflow-x-auto my-4">
+                            <table className="border-collapse border border-zinc-300 w-full" {...props} />
+                          </div>
+                        ),
+                        th: ({node, ...props}) => <th className={`border border-zinc-300 p-2 font-bold text-left ${m.role === 'user' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-800'}`} {...props} />,
+                        td: ({node, ...props}) => <td className="border border-zinc-300 p-2" {...props} />,
+                      }}
+                    >
+                      {m.content || (m.parts && m.parts.map((p: any) => p.text).join(''))}
+                    </ReactMarkdown>
                   </div>
                 </div>
               </div>
@@ -126,10 +138,7 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
         </div>
 
         <div className="p-4 bg-white dark:bg-zinc-950 border-t">
-          <form
-            onSubmit={handleManualSubmit}
-            className="flex space-x-2 max-w-4xl mx-auto"
-          >
+          <form onSubmit={handleManualSubmit} className="flex space-x-2 max-w-4xl mx-auto">
             <input
               placeholder={`Pregunta sobre las obras de ${cliente?.nombre || 'este cliente'}...`}
               className="flex-1 h-11 px-4 rounded-full border border-zinc-200 bg-zinc-50 text-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-500 transition-all"
@@ -138,18 +147,10 @@ export default function ClientAIPage({ params }: { params: Promise<{ id: string 
               autoFocus
               autoComplete="off"
             />
-            <Button 
-              type="submit" 
-              size="icon" 
-              disabled={isLoading || !chatInput.trim()} 
-              className="h-11 w-11 rounded-full bg-zinc-900 hover:bg-zinc-800 transition-transform active:scale-95"
-            >
+            <Button type="submit" size="icon" disabled={isLoading || !chatInput.trim()} className="h-11 w-11 rounded-full bg-zinc-900 hover:bg-zinc-800 transition-transform active:scale-95">
               <Send className="h-4 w-4" />
             </Button>
           </form>
-          <p className="text-[9px] text-center text-zinc-400 mt-2 uppercase tracking-widest">
-            IA entrenada con normativas de construcción en seco 2026
-          </p>
         </div>
       </div>
     </div>
