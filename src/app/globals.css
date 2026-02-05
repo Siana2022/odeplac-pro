@@ -1,42 +1,28 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --font-archivo: var(--font-archivo);
-  /* REGLA DE ORO: El background SIEMPRE es tu azul */
   --color-background: #295693;
-  --color-foreground: #ffffff;
-  --color-card: #ffffff;
-  --color-card-foreground: #1e293b;
 }
 
 :root {
   --background: #295693;
-  --foreground: #ffffff;
 }
 
 @layer base {
-  /* Forzamos el azul en la raíz */
-  html, body, #__next, [data-v-app] {
-    background-color: #295693 !important;
+  body {
+    background-color: #295693;
     color: #ffffff;
     font-family: var(--font-archivo), sans-serif;
   }
 
-  /* 🚨 ELIMINADOR DE BLANCOS: Esto busca cualquier fondo claro y lo vuelve azul */
-  main, section, .bg-slate-50, .bg-gray-50, .bg-zinc-50 {
-    background-color: #295693 !important;
-  }
-
-  /* Mantenemos las tarjetas blancas con texto negro como en tu pipeline */
-  .card, [class*="Card"] {
-    background-color: #ffffff !important;
-    color: #1e293b !important;
-  }
-  
-  .card *, [class*="Card"] * {
-    color: #1e293b !important;
+  /* Solo forzamos blanco en textos que no estén dentro de tarjetas o inputs */
+  h1, h2, h3, h4, h5, h6, p, span {
+    color: inherit;
   }
 }
+
+/* Clases de utilidad para asegurar visibilidad */
+.bg-sidebar { background-color: #1e3f6d; }
+.text-white-all * { color: white !important; }
