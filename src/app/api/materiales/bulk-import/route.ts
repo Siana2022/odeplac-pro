@@ -11,10 +11,11 @@ export async function POST(req: Request) {
 
     const supabase = await createClient();
 
-    console.log(`📦 Procesando importación: ${materiales.length} items de ${categoria}`);
+    console.log(`📦 Procesando importación de ${materiales.length} materiales...`);
 
     const materialesData = materiales.map((m: any) => {
       const precioCoste = parseFloat(m.precio) || 0;
+      // Cálculo del PVP: Coste * (1 + Margen/100)
       const precioVenta = precioCoste * (1 + (margen / 100));
 
       return {
@@ -27,23 +28,20 @@ export async function POST(req: Request) {
         proveedor_id: proveedorId,
         tarifa_id: tarifaId,
         referencia_catalogo: m.referencia || null,
-        updated_at: new Date().toISOString() // Aseguramos que se marca la actualización
+        updated_at: new Date().toISOString()
       };
     });
 
-    // Inserción masiva en Supabase
+    // Inserción masiva
     const { data, error } = await supabase
       .from('materiales')
       .insert(materialesData)
       .select();
 
     if (error) {
-      console.error("❌ Error de Supabase al insertar:", error.message);
-      // Enviamos el mensaje de error de la DB para saber si falta una columna
-      return NextResponse.json({ error: `Error en Base de Datos: ${error.message}` }, { status: 500 });
+      console.error("❌ Error Supabase:", error.message);
+      return NextResponse.json({ error: `Base de Datos: ${error.message}` }, { status: 500 });
     }
-
-    console.log(`✅ Éxito: ${data.length} materiales importados.`);
 
     return NextResponse.json({ 
       success: true, 
@@ -51,7 +49,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("❌ Fallo crítico en el endpoint bulk-import:", error.message);
+    console.error("❌ Fallo crítico:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

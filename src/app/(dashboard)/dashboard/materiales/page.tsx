@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import { Button } from "@/components/ui/button"
 import { 
-  Upload, FileText, Loader2, ChevronLeft, ExternalLink, 
-  TrendingUp, Calendar, Check, Trash2, Percent, Tag, Plus 
+  Upload, FileText, Loader2, ChevronLeft, 
+  TrendingUp, Calendar, Trash2, Percent 
 } from "lucide-react"
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 
 export default function TarifasPage() {
+  const router = useRouter()
   const [file, setFile] = useState<File | null>(null)
   const [proveedores, setProveedores] = useState<any[]>([])
   const [tarifas, setTarifas] = useState<any[]>([])
@@ -53,22 +55,10 @@ export default function TarifasPage() {
     fetchCategorias() 
   }, [])
 
-  const crearCategoria = async () => {
-    if (!nuevaCategoria) return
-    const { error } = await supabase.from('categorias_materiales').insert({ nombre: nuevaCategoria })
-    if (!error) {
-      toast.success("Tipología creada")
-      setNuevaCategoria('')
-      setShowAddCat(false)
-      fetchCategorias()
-    }
-  }
-
   const handleAnalizarIA = async (tarifa: any) => {
     setIsAnalyzing(tarifa.id)
     setActiveTarifa(tarifa)
     try {
-      // 1. Verificar si ya tenemos caché del resultado
       if (tarifa.resultado_ia) {
         setUpdatesFound(tarifa.resultado_ia)
         setShowComparison(true)
@@ -82,8 +72,6 @@ export default function TarifasPage() {
         body: JSON.stringify({ pdfUrl: tarifa.archivo_url, tarifaId: tarifa.id })
       })
       
-      if (response.status === 429) throw new Error("Cuota de Gemini agotada. Prueba en 1 minuto.")
-      
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
       
@@ -95,12 +83,10 @@ export default function TarifasPage() {
   }
 
   const aplicarCambios = async () => {
-    console.log("🚀 [VOLCADO] Iniciando proceso...");
-    console.log("🚀 [VOLCADO] Datos:", { activeTarifa, categoria, margen, total: updatesFound.length });
-
+    console.log("🚀 [VOLCADO] Iniciando...");
+    
     if (!activeTarifa || !categoria) {
-      console.error("❌ [VOLCADO] Falta tarifa o categoría");
-      toast.error("Error: Selecciona una tipología antes de volcar.");
+      toast.error("Selecciona una Tipología antes de volcar");
       return
     }
 
@@ -121,14 +107,18 @@ export default function TarifasPage() {
       const resData = await response.json()
 
       if (response.ok) {
-        console.log("✅ [VOLCADO] Éxito:", resData);
-        toast.success(`Catálogo actualizado: ${resData.count} materiales.`)
-        setShowComparison(false)
+        toast.success(`¡Éxito! ${resData.count} materiales volcados.`);
+        setShowComparison(false);
+        
+        // 🚀 REDIRECCIÓN AL LISTADO
+        setTimeout(() => {
+          router.push('/dashboard/materiales');
+        }, 1500);
+
       } else {
-        throw new Error(resData.error || "Error desconocido en el servidor")
+        throw new Error(resData.error)
       }
     } catch (e: any) {
-      console.error("❌ [VOLCADO] Fallo crítico:", e);
       toast.error("Error al volcar", { description: e.message })
     } finally { setIsImporting(false) }
   }
@@ -152,43 +142,22 @@ export default function TarifasPage() {
     setIsUploading(false)
   }
 
-  const handleDelete = async (tarifa: any) => {
-    if (!confirm(`¿Borrar "${tarifa.nombre_archivo}"?`)) return
-    await supabase.storage.from('proveedores').remove([tarifa.archivo_url])
-    await supabase.from('proveedores_tarifas').delete().eq('id', tarifa.id)
-    fetchData()
-    toast.success("Eliminado")
-  }
-
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-10">
       
-      {/* MODAL CATEGORÍA */}
-      <Dialog open={showAddCat} onOpenChange={setShowAddCat}>
-        <DialogContent className="bg-white rounded-3xl p-6 border-none shadow-2xl max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold">Nueva Tipología</DialogTitle>
-            <DialogDescription>Añade una categoría para clasificar tus materiales.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-4">
-            <input className="w-full p-4 border-2 border-zinc-200 rounded-2xl bg-zinc-50 outline-none focus:border-[#295693]" placeholder="Ej: Aislamientos..." value={nuevaCategoria} onChange={(e) => setNuevaCategoria(e.target.value)} />
-            <Button onClick={crearCategoria} className="w-full bg-[#295693] text-white rounded-2xl h-14 font-bold">Guardar</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* MODAL COMPARATIVA */}
+      {/* MODAL COMPARATIVA CON FIX DE ACCESIBILIDAD */}
       <Dialog open={showComparison} onOpenChange={setShowComparison}>
         <DialogContent className="bg-white max-w-3xl rounded-3xl p-0 overflow-hidden shadow-2xl border-none">
           <div className="bg-[#295693] p-6 text-white flex justify-between items-center">
-            <div>
-              <DialogHeader>
-                <DialogTitle className="text-xl font-bold">Previsualización de Precios</DialogTitle>
-                <DialogDescription className="text-blue-100/70 text-xs">Margen: {margen}% | {categoria}</DialogDescription>
-              </DialogHeader>
-            </div>
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold">Previsualización de Precios</DialogTitle>
+              <DialogDescription className="text-blue-100/70 text-xs">
+                Se han detectado {updatesFound.length} materiales. Revisa los precios antes de confirmar.
+              </DialogDescription>
+            </DialogHeader>
             <TrendingUp size={32} className="opacity-20" />
           </div>
+          
           <div className="p-6">
             <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
               <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest">
@@ -213,25 +182,29 @@ export default function TarifasPage() {
                 </div>
               ))}
             </div>
+            
             <div className="mt-8 flex gap-3">
-              <Button onClick={() => setShowComparison(false)} variant="outline" className="flex-1 rounded-xl h-12 font-bold">Cancelar</Button>
+              <Button onClick={() => setShowComparison(false)} variant="outline" className="flex-1 rounded-xl h-12 font-bold text-zinc-500">Cancelar</Button>
               <Button 
-                onClick={() => {
-                  console.log("🖱️ Clic en Volcar detectado");
-                  aplicarCambios();
-                }} 
+                onClick={aplicarCambios} 
                 disabled={isImporting} 
-                className="flex-1 bg-[#295693] text-white font-bold rounded-xl h-12 shadow-lg"
+                className="flex-1 bg-[#295693] text-white font-bold rounded-xl h-12 shadow-lg hover:bg-[#1e3f6d]"
               >
-                {isImporting ? <Loader2 className="animate-spin mr-2"/> : "Confirmar y Volcar Catálogo"}
+                {isImporting ? <Loader2 className="animate-spin mr-2"/> : null}
+                Confirmar y Volcar Catálogo
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* CABECERA */}
       <div className="flex items-center gap-4">
-        <Link href="/dashboard/materiales"><Button variant="outline" size="icon" className="rounded-xl text-white border-white/20"><ChevronLeft/></Button></Link>
+        <Link href="/dashboard/materiales">
+          <Button variant="outline" size="icon" className="rounded-xl border-white/20 text-white">
+            <ChevronLeft/>
+          </Button>
+        </Link>
         <h1 className="text-3xl font-bold text-white tracking-tight">Gestión de Tarifas</h1>
       </div>
 
@@ -250,10 +223,7 @@ export default function TarifasPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center px-1">
-                    <label className="text-[10px] font-black text-zinc-500 uppercase">Tipología</label>
-                    <button onClick={() => setShowAddCat(true)} className="text-[10px] font-black text-[#295693] hover:underline">+ Crear</button>
-                  </div>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">Tipología</label>
                   <select className="w-full p-3 border-2 border-zinc-300 rounded-xl bg-zinc-100 font-bold text-xs" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                     <option value="">Elegir...</option>
                     {listaCategorias.map(cat => <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>)}
@@ -285,26 +255,36 @@ export default function TarifasPage() {
         </div>
 
         <div className="lg:col-span-8 space-y-4">
-          <h2 className="text-white font-bold text-xl px-2 flex items-center gap-2"><Calendar size={20} className="text-blue-300"/> Historial</h2>
+          <h2 className="text-white font-bold text-xl px-2 flex items-center gap-2">
+            <Calendar size={20} className="text-blue-300"/> Historial de Tarifas
+          </h2>
           {tarifas.map((t) => (
             <div key={t.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex items-center justify-between group">
               <div className="flex items-center gap-4">
-                <div className="h-12 w-12 bg-red-500/10 rounded-xl flex items-center justify-center text-red-400"><FileText size={24} /></div>
+                <div className="h-12 w-12 bg-red-500/10 rounded-xl flex items-center justify-center text-red-400">
+                  <FileText size={24} />
+                </div>
                 <div>
                   <h3 className="text-white font-bold text-base">{t.nombre_archivo}</h3>
                   <div className="flex gap-2 mt-1">
-                    <span className="text-blue-300 text-[9px] font-black uppercase px-2 py-0.5 bg-blue-500/10 rounded-md">{t.proveedores?.nombre}</span>
-                    <span className="text-zinc-400 text-[9px] font-black uppercase px-2 py-0.5 bg-white/5 rounded-md">{t.categoria}</span>
+                    <span className="text-blue-300 text-[9px] font-black uppercase px-2 py-0.5 bg-blue-500/10 rounded-md">
+                      {t.proveedores?.nombre}
+                    </span>
+                    <span className="text-zinc-400 text-[9px] font-black uppercase px-2 py-0.5 bg-white/5 rounded-md">
+                      {t.categoria}
+                    </span>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => handleAnalizarIA(t)} disabled={isAnalyzing !== null} className="bg-green-600 hover:bg-green-500 text-white rounded-full text-[10px] font-bold px-5 h-10">
-                  {isAnalyzing === t.id ? <Loader2 size={14} className="animate-spin mr-2"/> : <TrendingUp size={14} className="mr-2"/>}
-                  {t.resultado_ia ? "Ver Datos" : "Sincronizar"}
-                </Button>
-                <Button onClick={() => handleDelete(t)} className="h-10 w-10 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-full transition-all"><Trash2 size={16} /></Button>
-              </div>
+              <Button 
+                size="sm" 
+                onClick={() => handleAnalizarIA(t)} 
+                disabled={isAnalyzing !== null} 
+                className="bg-green-600 hover:bg-green-500 text-white rounded-full text-[10px] font-bold px-5 h-10"
+              >
+                {isAnalyzing === t.id ? <Loader2 size={14} className="animate-spin mr-2"/> : <TrendingUp size={14} className="mr-2"/>}
+                {t.resultado_ia ? "Ver Datos" : "Sincronizar"}
+              </Button>
             </div>
           ))}
         </div>
