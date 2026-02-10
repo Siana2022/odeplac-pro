@@ -6,16 +6,15 @@ export async function POST(req: Request) {
     const { materiales, proveedorId, tarifaId, categoria, margen } = await req.json();
     
     if (!materiales || !Array.isArray(materiales)) {
-      return NextResponse.json({ error: "No hay materiales" }, { status: 400 });
+      return NextResponse.json({ error: "No se recibieron materiales válidos" }, { status: 400 });
     }
 
     const supabase = await createClient();
 
-    console.log(`📦 Procesando ${materiales.length} materiales de ${categoria} con margen ${margen}%...`);
+    console.log(`📦 Procesando importación: ${materiales.length} items de ${categoria}`);
 
     const materialesData = materiales.map((m: any) => {
       const precioCoste = parseFloat(m.precio) || 0;
-      // 🚀 CÁLCULO DEL PVP: Precio Coste + Margen
       const precioVenta = precioCoste * (1 + (margen / 100));
 
       return {
@@ -28,21 +27,31 @@ export async function POST(req: Request) {
         proveedor_id: proveedorId,
         tarifa_id: tarifaId,
         referencia_catalogo: m.referencia || null,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString() // Aseguramos que se marca la actualización
       };
     });
 
+    // Inserción masiva en Supabase
     const { data, error } = await supabase
       .from('materiales')
       .insert(materialesData)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error("❌ Error de Supabase al insertar:", error.message);
+      // Enviamos el mensaje de error de la DB para saber si falta una columna
+      return NextResponse.json({ error: `Error en Base de Datos: ${error.message}` }, { status: 500 });
+    }
 
-    return NextResponse.json({ success: true, count: data.length });
+    console.log(`✅ Éxito: ${data.length} materiales importados.`);
+
+    return NextResponse.json({ 
+      success: true, 
+      count: data.length 
+    });
 
   } catch (error: any) {
-    console.error("❌ Fallo en importación:", error.message);
+    console.error("❌ Fallo crítico en el endpoint bulk-import:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
