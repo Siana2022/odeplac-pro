@@ -2,293 +2,121 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import { Button } from "@/components/ui/button"
-import { 
-  Upload, FileText, Loader2, ChevronLeft, 
-  TrendingUp, Calendar, Trash2, Percent 
-} from "lucide-react"
+import { Plus, Search, Filter, Package, Trash2, Edit3 } from "lucide-react"
 import Link from 'next/link'
-import { toast } from 'sonner'
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle,
-  DialogDescription 
-} from "@/components/ui/dialog"
 
-export default function TarifasPage() {
-  const router = useRouter()
-  const [file, setFile] = useState<File | null>(null)
-  const [proveedores, setProveedores] = useState<any[]>([])
-  const [tarifas, setTarifas] = useState<any[]>([])
-  const [listaCategorias, setListaCategorias] = useState<any[]>([])
-  
-  const [selectedProveedor, setSelectedProveedor] = useState('')
-  const [categoria, setCategoria] = useState('')
-  const [margen, setMargen] = useState(30)
-  const [nuevaCategoria, setNuevaCategoria] = useState('')
-  
-  const [isUploading, setIsUploading] = useState(false)
-  const [isAnalyzing, setIsAnalyzing] = useState<string | null>(null)
-  const [showComparison, setShowComparison] = useState(false)
-  const [showAddCat, setShowAddCat] = useState(false)
-  const [updatesFound, setUpdatesFound] = useState<any[]>([])
-  const [activeTarifa, setActiveTarifa] = useState<any>(null)
-  const [isImporting, setIsImporting] = useState(false)
+export default function MaterialesPage() {
+  const [materiales, setMateriales] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busqueda, setBusqueda] = useState('')
 
-  const fetchData = async () => {
-    const { data: provs } = await supabase.from('proveedores').select('*').order('nombre')
-    if (provs) setProveedores(provs)
-    const { data: tars } = await supabase.from('proveedores_tarifas').select('*, proveedores (nombre)').order('fecha_subida', { ascending: false })
-    if (tars) setTarifas(tars)
-  }
-
-  const fetchCategorias = async () => {
-    const { data } = await supabase.from('categorias_materiales').select('*').order('nombre')
-    if (data) setListaCategorias(data)
-  }
-
-  useEffect(() => { 
-    fetchData()
-    fetchCategorias() 
+  useEffect(() => {
+    fetchMateriales()
   }, [])
 
-  const handleAnalizarIA = async (tarifa: any) => {
-    setIsAnalyzing(tarifa.id)
-    setActiveTarifa(tarifa)
-    try {
-      if (tarifa.resultado_ia) {
-        setUpdatesFound(tarifa.resultado_ia)
-        setShowComparison(true)
-        setIsAnalyzing(null)
-        return
-      }
+  const fetchMateriales = async () => {
+    setLoading(true)
+    // Hacemos una consulta simple primero para asegurar que vemos algo
+    const { data, error } = await supabase
+      .from('materiales')
+      .select(`
+        *,
+        proveedores (nombre)
+      `)
+      .order('created_at', { ascending: false })
 
-      const response = await fetch('/api/ai/analyze-prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdfUrl: tarifa.archivo_url, tarifaId: tarifa.id })
-      })
-      
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      
-      setUpdatesFound(data.updates)
-      setShowComparison(true)
-    } catch (error: any) {
-      toast.error("Error", { description: error.message })
-    } finally { setIsAnalyzing(null) }
-  }
-
-  const aplicarCambios = async () => {
-    console.log("🚀 [VOLCADO] Iniciando...");
-    
-    if (!activeTarifa || !categoria) {
-      toast.error("Selecciona una Tipología antes de volcar");
-      return
+    if (error) {
+      console.error("Error cargando materiales:", error)
+    } else {
+      setMateriales(data || [])
     }
-
-    setIsImporting(true)
-    try {
-      const response = await fetch('/api/materiales/bulk-import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          materiales: updatesFound, 
-          proveedorId: activeTarifa.proveedor_id,
-          tarifaId: activeTarifa.id,
-          categoria: categoria,
-          margen: margen
-        })
-      })
-
-      const resData = await response.json()
-
-      if (response.ok) {
-        toast.success(`¡Éxito! ${resData.count} materiales volcados.`);
-        setShowComparison(false);
-        
-        // 🚀 REDIRECCIÓN AL LISTADO
-        setTimeout(() => {
-          router.push('/dashboard/materiales');
-        }, 1500);
-
-      } else {
-        throw new Error(resData.error)
-      }
-    } catch (e: any) {
-      toast.error("Error al volcar", { description: e.message })
-    } finally { setIsImporting(false) }
+    setLoading(false)
   }
 
-  const handleUpload = async () => {
-    if (!file || !selectedProveedor || !categoria) return
-    setIsUploading(true)
-    try {
-      const filePath = `tarifas/${selectedProveedor}/${Date.now()}_${file.name}`
-      await supabase.storage.from('proveedores').upload(filePath, file)
-      await supabase.from('proveedores_tarifas').insert({ 
-        proveedor_id: selectedProveedor, 
-        nombre_archivo: file.name, 
-        archivo_url: filePath,
-        categoria: categoria 
-      })
-      fetchData()
-      setFile(null)
-      toast.success("Archivo subido")
-    } catch (e) { toast.error("Error al subir") }
-    setIsUploading(false)
-  }
+  const filtrados = materiales.filter(m => 
+    m.nombre?.toLowerCase().includes(busqueda.toLowerCase()) ||
+    m.categoria?.toLowerCase().includes(busqueda.toLowerCase())
+  )
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-10">
-      
-      {/* MODAL COMPARATIVA CON FIX DE ACCESIBILIDAD */}
-      <Dialog open={showComparison} onOpenChange={setShowComparison}>
-        <DialogContent className="bg-white max-w-3xl rounded-3xl p-0 overflow-hidden shadow-2xl border-none">
-          <div className="bg-[#295693] p-6 text-white flex justify-between items-center">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-bold">Previsualización de Precios</DialogTitle>
-              <DialogDescription className="text-blue-100/70 text-xs">
-                Se han detectado {updatesFound.length} materiales. Revisa los precios antes de confirmar.
-              </DialogDescription>
-            </DialogHeader>
-            <TrendingUp size={32} className="opacity-20" />
-          </div>
-          
-          <div className="p-6">
-            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest">
-                <div className="col-span-6">Producto</div>
-                <div className="col-span-3 text-right">Coste</div>
-                <div className="col-span-3 text-right text-[#295693]">PVP (Venta)</div>
-              </div>
-              {updatesFound.map((item, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 p-4 bg-zinc-50 rounded-2xl border border-zinc-100 items-center">
-                  <div className="col-span-6">
-                    <p className="text-sm font-bold text-zinc-800 truncate">{item.nombre}</p>
-                    <p className="text-[10px] text-zinc-400 font-bold">{item.referencia || 'S/R'}</p>
-                  </div>
-                  <div className="col-span-3 text-right text-zinc-500 font-bold text-sm">
-                    {Number(item.precio).toFixed(2)}€
-                  </div>
-                  <div className="col-span-3 text-right">
-                    <p className="text-lg font-black text-green-600">
-                      {(Number(item.precio) * (1 + margen/100)).toFixed(2)}€
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            <div className="mt-8 flex gap-3">
-              <Button onClick={() => setShowComparison(false)} variant="outline" className="flex-1 rounded-xl h-12 font-bold text-zinc-500">Cancelar</Button>
-              <Button 
-                onClick={aplicarCambios} 
-                disabled={isImporting} 
-                className="flex-1 bg-[#295693] text-white font-bold rounded-xl h-12 shadow-lg hover:bg-[#1e3f6d]"
-              >
-                {isImporting ? <Loader2 className="animate-spin mr-2"/> : null}
-                Confirmar y Volcar Catálogo
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* CABECERA */}
-      <div className="flex items-center gap-4">
-        <Link href="/dashboard/materiales">
-          <Button variant="outline" size="icon" className="rounded-xl border-white/20 text-white">
-            <ChevronLeft/>
+    <div className="max-w-7xl mx-auto p-6 space-y-8">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Catálogo de Materiales</h1>
+          <p className="text-blue-200/60 text-sm">Gestiona tus productos y precios de venta</p>
+        </div>
+        <div className="flex gap-3">
+          <Link href="/dashboard/materiales/tarifas">
+            <Button variant="outline" className="rounded-2xl border-white/10 text-white hover:bg-white/5">
+              Gestionar Tarifas
+            </Button>
+          </Link>
+          <Button className="bg-[#295693] text-white rounded-2xl px-6 font-bold shadow-lg">
+            <Plus className="mr-2 h-5 w-5" /> Nuevo Material
           </Button>
-        </Link>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Gestión de Tarifas</h1>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4">
-          <div className="bg-white rounded-3xl shadow-xl border border-zinc-200 overflow-hidden sticky top-6">
-            <div className="bg-[#295693] p-6 text-white font-bold text-center uppercase tracking-widest text-xs">Nueva Importación</div>
-            <div className="p-6 space-y-5">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">Proveedor</label>
-                <select className="w-full p-4 border-2 border-zinc-300 rounded-2xl bg-zinc-100 text-zinc-900 font-bold text-sm outline-none" value={selectedProveedor} onChange={(e) => setSelectedProveedor(e.target.value)}>
-                  <option value="">¿De quién es el PDF?</option>
-                  {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">Tipología</label>
-                  <select className="w-full p-3 border-2 border-zinc-300 rounded-xl bg-zinc-100 font-bold text-xs" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                    <option value="">Elegir...</option>
-                    {listaCategorias.map(cat => <option key={cat.id} value={cat.nombre}>{cat.nombre}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">Margen %</label>
-                  <div className="relative">
-                    <input type="number" className="w-full p-3 border-2 border-zinc-300 rounded-xl bg-zinc-100 font-bold text-xs" value={margen} onChange={(e) => setMargen(Number(e.target.value))} />
-                    <Percent size={12} className="absolute right-3 top-3.5 text-zinc-400" />
-                  </div>
-                </div>
-              </div>
-
-              <div className={`border-2 border-dashed rounded-3xl p-8 text-center bg-zinc-100 cursor-pointer ${file ? 'border-green-500' : 'border-zinc-300'}`}>
-                <input type="file" id="pdf-up" className="hidden" accept=".pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                <label htmlFor="pdf-up" className="cursor-pointer flex flex-col items-center">
-                  <FileText className={`h-10 w-10 mb-2 ${file ? 'text-green-600' : 'text-zinc-400'}`} />
-                  <span className="text-[10px] font-black uppercase break-all">{file ? file.name : 'Subir PDF'}</span>
-                </label>
-              </div>
-
-              <Button onClick={handleUpload} disabled={isUploading || !file || !selectedProveedor} className="w-full bg-[#295693] text-white rounded-2xl h-16 font-black shadow-lg">
-                {isUploading ? <Loader2 className="animate-spin" /> : <Upload className="mr-2 h-5 w-5" />}
-                Guardar Tarifa
-              </Button>
-            </div>
-          </div>
+      <div className="flex gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-3.5 text-zinc-400" size={20} />
+          <input 
+            className="w-full bg-white/10 border border-white/10 rounded-2xl p-3.5 pl-12 text-white outline-none focus:ring-2 ring-[#295693]"
+            placeholder="Buscar por nombre o categoría..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
         </div>
+        <Button variant="outline" className="rounded-2xl border-white/10 text-white w-14 h-14">
+          <Filter size={20} />
+        </Button>
+      </div>
 
-        <div className="lg:col-span-8 space-y-4">
-          <h2 className="text-white font-bold text-xl px-2 flex items-center gap-2">
-            <Calendar size={20} className="text-blue-300"/> Historial de Tarifas
-          </h2>
-          {tarifas.map((t) => (
-            <div key={t.id} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex items-center justify-between group">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 bg-red-500/10 rounded-xl flex items-center justify-center text-red-400">
-                  <FileText size={24} />
+      {loading ? (
+        <div className="flex flex-col items-center py-20 text-white/50">
+          <Package className="animate-bounce h-12 w-12 mb-4" />
+          <p className="font-bold">Cargando almacén...</p>
+        </div>
+      ) : filtrados.length === 0 ? (
+        <div className="bg-white/5 border border-dashed border-white/10 rounded-3xl py-20 text-center">
+          <Package className="mx-auto h-16 w-16 text-white/20 mb-4" />
+          <h3 className="text-white font-bold text-xl">No hay materiales todavía</h3>
+          <p className="text-zinc-400 mt-2">Sincroniza una tarifa para llenar el catálogo automáticamente.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtrados.map((m) => (
+            <div key={m.id} className="bg-white rounded-3xl p-5 shadow-xl border border-zinc-100 group hover:border-[#295693] transition-all">
+              <div className="flex justify-between items-start mb-4">
+                <div className="p-3 bg-zinc-100 rounded-2xl text-[#295693]">
+                  <Package size={24} />
                 </div>
-                <div>
-                  <h3 className="text-white font-bold text-base">{t.nombre_archivo}</h3>
-                  <div className="flex gap-2 mt-1">
-                    <span className="text-blue-300 text-[9px] font-black uppercase px-2 py-0.5 bg-blue-500/10 rounded-md">
-                      {t.proveedores?.nombre}
-                    </span>
-                    <span className="text-zinc-400 text-[9px] font-black uppercase px-2 py-0.5 bg-white/5 rounded-md">
-                      {t.categoria}
-                    </span>
-                  </div>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 text-zinc-400"><Edit3 size={16}/></Button>
+                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 text-red-300"><Trash2 size={16}/></Button>
                 </div>
               </div>
-              <Button 
-                size="sm" 
-                onClick={() => handleAnalizarIA(t)} 
-                disabled={isAnalyzing !== null} 
-                className="bg-green-600 hover:bg-green-500 text-white rounded-full text-[10px] font-bold px-5 h-10"
-              >
-                {isAnalyzing === t.id ? <Loader2 size={14} className="animate-spin mr-2"/> : <TrendingUp size={14} className="mr-2"/>}
-                {t.resultado_ia ? "Ver Datos" : "Sincronizar"}
-              </Button>
+              
+              <h3 className="font-black text-zinc-800 text-lg leading-tight mb-1">{m.nombre}</h3>
+              <p className="text-[10px] font-black uppercase text-zinc-400 tracking-widest mb-4">
+                {m.proveedores?.nombre || 'Proveedor Desconocido'} | {m.categoria}
+              </p>
+
+              <div className="flex items-end justify-between border-t pt-4">
+                <div>
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Precio Venta</p>
+                  <p className="text-2xl font-black text-green-600">{Number(m.precio_venta).toFixed(2)}€</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Coste</p>
+                  <p className="text-sm font-bold text-zinc-500">{Number(m.precio_coste).toFixed(2)}€</p>
+                </div>
+              </div>
             </div>
           ))}
         </div>
-      </div>
+      )}
     </div>
   )
 }
