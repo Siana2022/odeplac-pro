@@ -11,111 +11,165 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/lib/supabase/client'
 import { Proveedor } from '@/types/database'
 import { toast } from 'sonner'
+import { crearMaterialAction } from '@/lib/actions/materiales'
 
-const materialSchema = z.object({
+// 1. Esquema de validación estricto
+const materialFormSchema = z.object({
   nombre: z.string().min(2, 'El nombre es obligatorio'),
-  descripcion: z.string().optional(),
-  precio_unitario: z.string().transform((val) => parseFloat(val) || 0),
-  stock: z.string().transform((val) => parseFloat(val) || 0),
-  unidad: z.string().default('ud'),
-  proveedor_id: z.string().uuid('Selecciona un proveedor').optional().or(z.literal('')),
+  descripcion: z.string().default(''),
+  precio_unitario: z.coerce.number().min(0, 'Precio inválido'),
+  stock: z.coerce.number().min(0, 'Stock inválido'),
+  unidad: z.string().min(1, 'La unidad es obligatoria'),
+  proveedor_id: z.string().uuid().nullable().optional(),
 })
 
-type MaterialFormValues = z.input<typeof materialSchema>
-
-const DEMO_USER_ID = '05971cd1-57e1-4d97-8469-4dc104f6e691'
+// 2. Tipo inferido para la lógica interna
+type MaterialFormValues = z.infer<typeof materialFormSchema>
 
 export function MaterialForm({ onSuccess }: { onSuccess: () => void }) {
   const [loading, setLoading] = useState(false)
   const [proveedores, setProveedores] = useState<Proveedor[]>([])
 
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<MaterialFormValues>({
-    resolver: zodResolver(materialSchema),
+  // 3. Usamos "any" en el genérico del hook para romper el bucle de validación de TS 
+  // pero mantenemos la seguridad con el resolver de Zod y el tipado de onSubmit.
+  const form = useForm<any>({
+    resolver: zodResolver(materialFormSchema),
     defaultValues: {
+      nombre: '',
+      descripcion: '',
       unidad: 'ud',
-      precio_unitario: '0',
-      stock: '0'
+      precio_unitario: 0,
+      stock: 0,
+      proveedor_id: null
     }
-  } as any) // 👈 Esto silencia el conflicto entre texto y número
+  })
 
   useEffect(() => {
     const fetchProveedores = async () => {
-      const { data } = await supabase.from('proveedores').select('id, nombre')
+      const { data } = await supabase
+        .from('proveedores')
+        .select('id, nombre')
+        .order('nombre')
       if (data) setProveedores(data as Proveedor[])
     }
     fetchProveedores()
   }, [])
 
-  const onSubmit = async (data: any) => {
+  // 4. Aquí recuperamos el tipado estricto para la Server Action
+  const onSubmit = async (values: MaterialFormValues) => {
     setLoading(true)
-    const { error } = await supabase.from('materiales').insert([{
-      ...data,
-      usuario_id: DEMO_USER_ID,
-      proveedor_id: data.proveedor_id || null
-    }])
-
-    if (error) {
-      toast.error(error.message)
-    } else {
+    try {
+      const payload = {
+        ...values,
+        // Limpieza final de datos
+        proveedor_id: (values.proveedor_id === 'none' || !values.proveedor_id) ? null : values.proveedor_id
+      }
+      
+      await crearMaterialAction(payload)
       toast.success('Material creado correctamente')
+      form.reset()
       onSuccess()
+    } catch (error: any) {
+      toast.error(error.message || 'Error al crear el material')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 p-1">
       <div className="space-y-2">
         <Label htmlFor="nombre">Nombre del Material</Label>
-        <Input id="nombre" {...register('nombre')} placeholder="Ej: Placa de Yeso Laminado 13mm" />
-        {errors.nombre && <p className="text-xs text-red-500">{errors.nombre.message}</p>}
+        <Input 
+          id="nombre" 
+          {...form.register('nombre')} 
+          placeholder="Ej: Placa de Yeso Laminado 13mm" 
+        />
+        {form.formState.errors.nombre && (
+          <p className="text-[10px] text-red-500 font-medium">
+            {String(form.formState.errors.nombre.message)}
+          </p>
+        )}
       </div>
+
       <div className="space-y-2">
-        <Label htmlFor="descripcion">Descripción</Label>
-        <Input id="descripcion" {...register('descripcion')} placeholder="Detalles técnicos..." />
+        <Label htmlFor="descripcion">Descripción (Opcional)</Label>
+        <Input 
+          id="descripcion" 
+          {...form.register('descripcion')} 
+          placeholder="Detalles técnicos..." 
+        />
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="precio_unitario">Precio Unitario (€)</Label>
-          <Input id="precio_unitario" type="number" step="0.01" {...register('precio_unitario')} />
+          <Input 
+            id="precio_unitario" 
+            type="number" 
+            step="0.01" 
+            {...form.register('precio_unitario')} 
+          />
+          {form.formState.errors.precio_unitario && (
+            <p className="text-[10px] text-red-500 font-medium">
+              {String(form.formState.errors.precio_unitario.message)}
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="stock">Stock Inicial</Label>
-          <Input id="stock" type="number" step="0.01" {...register('stock')} />
+          <Input 
+            id="stock" 
+            type="number" 
+            step="0.01" 
+            {...form.register('stock')} 
+          />
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-            <Label htmlFor="unidad">Unidad</Label>
-            <Select defaultValue="ud" onValueChange={(val) => setValue('unidad', val)}>
-                <SelectTrigger>
-                    <SelectValue placeholder="ud" />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="ud">ud</SelectItem>
-                    <SelectItem value="m2">m2</SelectItem>
-                    <SelectItem value="ml">ml</SelectItem>
-                    <SelectItem value="kg">kg</SelectItem>
-                    <SelectItem value="saco">saco</SelectItem>
-                </SelectContent>
-            </Select>
+          <Label>Unidad</Label>
+          <Select 
+            defaultValue="ud" 
+            onValueChange={(val) => form.setValue('unidad', val, { shouldValidate: true })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="ud" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ud">ud</SelectItem>
+              <SelectItem value="m2">m2</SelectItem>
+              <SelectItem value="ml">ml</SelectItem>
+              <SelectItem value="kg">kg</SelectItem>
+              <SelectItem value="saco">saco</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
-            <Label htmlFor="proveedor">Proveedor</Label>
-            <Select onValueChange={(val) => setValue('proveedor_id', val)}>
-                <SelectTrigger>
-                    <SelectValue placeholder="Opcional" />
-                </SelectTrigger>
-                <SelectContent>
-                    {proveedores.map(p => (
-                        <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+          <Label>Proveedor</Label>
+          <Select 
+            onValueChange={(val) => form.setValue('proveedor_id', val === 'none' ? null : val, { shouldValidate: true })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Opcional" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Ninguno</SelectItem>
+              {proveedores.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? 'Guardando...' : 'Crear Material'}
+
+      <Button 
+        type="submit" 
+        className="w-full bg-[#295693] hover:bg-[#1e3d6b]" 
+        disabled={loading}
+      >
+        {loading ? 'Guardando...' : 'Registrar en Inventario'}
       </Button>
     </form>
   )
