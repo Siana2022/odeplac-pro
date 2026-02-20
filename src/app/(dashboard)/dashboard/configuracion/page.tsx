@@ -94,12 +94,17 @@ export default function ConfiguracionPage() {
 
         if (authError) throw authError;
 
+        // --- CORRECCIÓN PARA VERCEL (TypeScript Check) ---
+        if (!authData?.user) {
+          throw new Error('No se pudo obtener la información del usuario creado.');
+        }
+
         const { error: perfilError } = await supabase
           .from('perfiles')
           .insert({
-            id: authData.user.id,
+            id: authData.user.id, // Ahora TypeScript sabe que user existe
             email: formData.email,
-            nombre: formData.email.split('@')[0].toUpperCase(), // Nombre automático
+            nombre: formData.email.split('@')[0].toUpperCase(), 
             rol: formData.rol,
             cliente_id: formData.rol === 'cliente' ? formData.cliente_id : null
           });
