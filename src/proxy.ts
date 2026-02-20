@@ -1,5 +1,5 @@
-import { createServerClient, type NextRequest } from '@supabase/ssr'
-import { NextResponse } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server' // NextRequest debe venir de next/server
 
 // Cambiamos el nombre de la función de 'middleware' a 'proxy'
 export async function proxy(request: NextRequest) {
