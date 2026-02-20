@@ -1,52 +1,88 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+export const maxDuration = 60; // Importante para procesos largos de IA
+
 export async function POST(req: Request) {
   try {
-    const { materiales, proveedorId, tarifaId, categoria, margen } = await req.json();
-    
-    if (!materiales || !Array.isArray(materiales)) {
-      return NextResponse.json({ error: "No se recibieron materiales válidos" }, { status: 400 });
-    }
-
+    const { file, margen = 20, categoria = 'General', proveedorId } = await req.json();
+    const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     const supabase = await createClient();
 
-    console.log(`📦 Procesando importación de ${materiales.length} materiales...`);
+    if (!file) {
+      return NextResponse.json({ error: "No se recibió el archivo PDF en base64" }, { status: 400 });
+    }
 
-    const materialesData = materiales.map((m: any) => {
-      const precioCoste = parseFloat(m.precio) || 0;
-      // Cálculo del PVP: Coste * (1 + Margen/100)
-      const precioVenta = precioCoste * (1 + (margen / 100));
+    console.log(`🤖 Gemini procesando PDF para extraer materiales...`);
 
-      return {
-        nombre: m.nombre,
-        precio_coste: precioCoste,
-        precio_venta: precioVenta,
-        margen_beneficio: margen,
-        categoria: categoria,
-        unidad: m.unidad || 'ud',
-        proveedor_id: proveedorId,
-        tarifa_id: tarifaId,
-        referencia_catalogo: m.referencia || null,
-        updated_at: new Date().toISOString()
-      };
-    });
+    // 1. Prompt para que la IA extraiga los datos y calcule el PVP con tu margen
+    const systemPrompt = `
+      Eres un experto en construcción. Analiza este PDF de tarifas.
+      Extrae los productos y devuelve un JSON con esta estructura:
+      {
+        "materiales": [
+          {
+            "nombre": "Nombre del producto",
+            "coste": 0.00,
+            "unidad": "ud",
+            "descripcion": "Breve descripción"
+          }
+        ]
+      }
+      Reglas:
+      - 'unidad' debe ser: 'ud', 'm2', 'kg', 'ml'.
+      - Extrae el precio base (coste).
+    `;
 
-    // Inserción masiva
-    const { data, error } = await supabase
+    // 2. Llamada a Gemini
+    const aiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: systemPrompt },
+              { inlineData: { mimeType: "application/pdf", data: file } }
+            ]
+          }],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      }
+    );
+
+    if (!aiRes.ok) throw new Error("Error en la comunicación con la IA");
+
+    const result = await aiRes.json();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    const { materiales } = JSON.parse(text);
+
+    // 3. Mapeo a los nombres de columna reales de tu SQL (precio_unitario)
+    const materialesData = materiales.map((m: any) => ({
+      nombre: m.nombre,
+      descripcion: m.descripcion,
+      precio_unitario: parseFloat(m.coste) || 0, // En tu SQL es precio_unitario
+      unidad: m.unidad || 'ud',
+      categoria: categoria,
+      proveedor_id: proveedorId || null,
+      usuario_id: '05971cd1-57e1-4d97-8469-4dc104f6e691', // Demo ID
+      metadata: { margen_aplicado: margen }
+    }));
+
+    // 4. Inserción masiva
+    const { data, error: dbError } = await supabase
       .from('materiales')
       .insert(materialesData)
       .select();
 
-    if (error) {
-      console.error("❌ Error Supabase:", error.message);
-      return NextResponse.json({ error: `Base de Datos: ${error.message}` }, { status: 500 });
+    if (dbError) {
+      console.error("❌ Error Supabase:", dbError.message);
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      count: data.length 
-    });
+    return NextResponse.json({ success: true, count: data.length });
 
   } catch (error: any) {
     console.error("❌ Fallo crítico:", error.message);
