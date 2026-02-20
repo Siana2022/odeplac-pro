@@ -7,34 +7,37 @@ export async function POST(req: Request) {
     const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY || '';
     const { messages } = await req.json();
     
-    // Inicializamos cliente de Supabase (Server Side)
+    // Inicializamos cliente de Supabase (Server Side) con el helper que acabamos de validar
     const supabase = await createClient();
     
-    // Obtenemos los materiales reales de la base de datos
+    // Obtenemos los materiales reales de la base de datos según el esquema definido
     const { data: mats, error: dbError } = await supabase
       .from('materiales')
-      .select('nombre, precio_unitario, unidad');
+      .select('nombre, precio_unitario, unidad, categoria');
 
     if (dbError) {
       console.error('Error obteniendo materiales:', dbError);
     }
 
-    // Construimos la lista de precios para el contexto de la IA
-    const listaMateriales = mats?.map(m => `- ${m.nombre}: ${m.precio_unitario}€/${m.unidad}`).join('\n') || "";
+    // Construimos la lista de precios para el contexto de la IA basándonos en el esquema
+    const listaMateriales = mats?.map(m => `- ${m.nombre} (${m.categoria || 'General'}): ${m.precio_unitario}€/${m.unidad}`).join('\n') || "";
 
     const systemPrompt = `
       Eres el ASISTENTE TÉCNICO de Juanjo en ODEPLAC. 
       
-      MATERIALES Y PRECIOS ACTUALES EN BASE DE DATOS:
+      MATERIALES Y PRECIOS BASE (SIN MARGEN):
       ${listaMateriales}
 
       INSTRUCCIONES DE RESPUESTA:
-      1. Si Juanjo te pide un presupuesto o cálculo, responde SIEMPRE con una tabla Markdown clara.
-      2. La tabla debe tener columnas: Concepto, Cantidad, Unidad, Precio Unitario, Subtotal.
-      3. Aplica un margen de beneficio del 20% sobre los precios de la lista si no se especifica otro.
-      4. No preguntes por el nombre del cliente; Juanjo lo gestiona desde la interfaz.
-      5. Sé directo, técnico y profesional.
-      6. Al final de la tabla indica el TOTAL sin IVA y el TOTAL con IVA (21%).
+      1. Si se solicita un presupuesto o cálculo, responde EXCLUSIVAMENTE con una tabla Markdown.
+      2. Columnas obligatorias: Concepto, Cantidad, Unidad, Precio Unitario (con margen), Subtotal.
+      3. IMPORTANTE: Los precios de la lista de arriba son COSTES. Debes aplicar SIEMPRE un margen de beneficio del 20% sobre esos precios (Precio Venta = Coste * 1.20) a menos que Juanjo indique otro margen.
+      4. Al final de la tabla, incluye:
+         - TOTAL BASE (Suma de subtotales)
+         - IVA (21%)
+         - TOTAL PRESUPUESTO (Base + IVA)
+      5. No pidas datos del cliente.
+      6. Usa un tono técnico, preciso y directo.
     `;
 
     // Mapeo de mensajes al formato de Google Generative AI
@@ -43,12 +46,11 @@ export async function POST(req: Request) {
       parts: [{ text: m.content || '' }]
     }));
 
-    // Inyectamos el System Prompt en el primer mensaje para dar contexto
+    // Inyectamos el System Prompt como instrucción de contexto inicial
     if (contents.length > 0) {
-      contents[0].parts[0].text = `${systemPrompt}\n\nPregunta del usuario: ${contents[0].parts[0].text}`;
+      contents[0].parts[0].text = `${systemPrompt}\n\nPregunta de Juanjo: ${contents[0].parts[0].text}`;
     }
 
-    // Llamada a la API de Google Gemini 2.0 Flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${key}`,
       {
@@ -57,7 +59,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({ 
           contents,
           generationConfig: {
-            temperature: 0.2, // Baja temperatura para mayor precisión técnica
+            temperature: 0.1, // Reducimos a 0.1 para máxima consistencia en cálculos
             topP: 0.8,
             topK: 40
           }
@@ -73,7 +75,6 @@ export async function POST(req: Request) {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
     
-    // Transformamos el flujo SSE de Google a texto plano para el frontend
     const transformStream = new TransformStream({
       transform(chunk, controller) {
         const text = decoder.decode(chunk);
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
                 controller.enqueue(encoder.encode(content));
               }
             } catch (e) {
-              // Ignorar líneas malformadas o finales de stream
+              // Fin de stream o línea malformada
             }
           }
         }
