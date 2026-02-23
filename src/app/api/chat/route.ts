@@ -20,17 +20,17 @@ export async function POST(req: Request) {
 
     if (perfil?.rol !== 'admin') return new Response('Forbidden', { status: 403 });
 
-    // Obtenemos los datos para el contexto
     const { data: materiales } = await supabase.from('materiales').select('nombre, precio_coste, stock');
     const { data: obras } = await supabase.from('obras').select('nombre, estado');
 
     const result = await streamText({
       model: google('gemini-2.0-flash-exp'),
-      messages, // Al no tiparlo, TypeScript no se queja
-      system: `Eres el asistente de Odeplac Pro. Datos actuales: Materiales: ${JSON.stringify(materiales)}. Obras: ${JSON.stringify(obras)}. Responde de forma ejecutiva, corta y profesional.`,
+      messages,
+      system: `Eres el asistente de Odeplac Pro. Materiales: ${JSON.stringify(materiales)}. Obras: ${JSON.stringify(obras)}. Responde corto.`,
     });
 
-    return result.toDataStreamResponse();
+    // Cambiado a toTextStreamResponse y añadido 'as any' para forzar el build
+    return (result as any).toTextStreamResponse();
   } catch (e) {
     console.error(e);
     return new Response('Error', { status: 500 });
