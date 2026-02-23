@@ -9,15 +9,13 @@ export default function ChatBox() {
   
   const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
     api: '/api/chat',
-    // Esto nos ayudará a ver el error en pantalla si la API falla
-    onError: (err) => console.error("Error de la IA:", err)
+    onError: (err: any) => console.error("Error de la IA:", err)
   } as any) as any;
 
-  // Función para evitar que el formulario recargue la página
   const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault(); // CRUCIAL: Detiene el refresco de página
-    e.stopPropagation(); // Detiene que el evento suba al layout
-    if (!input.trim()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!input?.trim()) return;
     handleSubmit(e);
   };
 
@@ -35,22 +33,27 @@ export default function ChatBox() {
         <div className="absolute bottom-16 right-0 w-80 md:w-96 h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col border border-zinc-200 overflow-hidden">
           <div className="bg-[#1e3d6b] p-4 text-white font-bold flex items-center gap-2">
             <Sparkles size={18} className="text-blue-300" /> 
-            <span className="text-sm">Asistente Odeplac AI</span>
+            <span className="text-sm uppercase italic tracking-tighter">Asistente Odeplac AI</span>
           </div>
 
-          <div className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
+          <div className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4 text-zinc-800">
+            {messages?.length === 0 && (
+              <div className="bg-blue-50 p-3 rounded-lg text-xs italic text-blue-800 border border-blue-100 font-bold">
+                Hola Juanjo, ¿en qué te ayudo con las obras hoy?
+              </div>
+            )}
             {messages?.map((m: any) => (
               <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
-                  m.role === 'user' ? 'bg-[#295693] text-white' : 'bg-white text-zinc-800 border'
+                <div className={`max-w-[85%] p-3 rounded-2xl text-sm font-bold shadow-sm ${
+                  m.role === 'user' ? 'bg-[#295693] text-white rounded-tr-none' : 'bg-white text-zinc-800 border border-zinc-200 rounded-tl-none'
                 }`}>
                   {m.content}
                 </div>
               </div>
             ))}
-            {error && (
-              <div className="text-[10px] text-red-500 bg-red-50 p-2 rounded">
-                Error: {error.message}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse p-2 text-zinc-800">
+                <Loader2 size={12} className="animate-spin" /> Procesando...
               </div>
             )}
           </div>
@@ -59,14 +62,13 @@ export default function ChatBox() {
             <input 
               value={input}
               onChange={handleInputChange}
-              className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm" 
+              className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm font-bold" 
               placeholder="Escribe..." 
-              autoFocus
             />
             <button 
               type="submit" 
-              disabled={isLoading}
-              className="bg-[#295693] text-white p-2 rounded-lg"
+              disabled={isLoading || !input?.trim()}
+              className="bg-[#295693] text-white p-2 rounded-lg disabled:opacity-50"
             >
               <Send size={18} />
             </button>
