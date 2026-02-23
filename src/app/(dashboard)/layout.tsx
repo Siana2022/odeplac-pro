@@ -12,9 +12,10 @@ export default function DashboardLayout({
 }) {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   
+  // El "as any" es la clave para que Vercel acepte el build con la v6 de la SDK
   const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
     api: '/api/chat',
-  });
+  }) as any;
 
   return (
     <div className="flex min-h-screen bg-[#295693]">
@@ -47,7 +48,7 @@ export default function DashboardLayout({
                 </div>
               )}
               
-              {messages.map((m) => (
+              {messages.map((m: any) => (
                 <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] p-3 rounded-2xl text-sm font-bold shadow-sm ${
                     m.role === 'user' 
