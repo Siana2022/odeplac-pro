@@ -61,7 +61,7 @@ export default function DashboardLayout({
               
               {isLoading && (
                 <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse">
-                  <Loader2 size={12} className="animate-spin" /> Analizando datos de Odeplac...
+                  <Loader2 size={12} className="animate-spin" /> Analizando datos...
                 </div>
               )}
             </div>
@@ -71,7 +71,7 @@ export default function DashboardLayout({
                 value={input}
                 onChange={handleInputChange}
                 className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm font-bold focus:ring-2 ring-blue-500/20 transition-all" 
-                placeholder="Pregunta sobre stock u obras..." 
+                placeholder="Pregunta algo..." 
               />
               <button 
                 type="submit" 
