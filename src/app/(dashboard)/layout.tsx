@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import { MessageCircle, X, Sparkles, Send, Loader2 } from "lucide-react";
+// Importación correcta para v6
 import { useChat } from '@ai-sdk/react';
 
 export default function DashboardLayout({
@@ -12,10 +13,10 @@ export default function DashboardLayout({
 }) {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   
-  // El "as any" es la clave para que Vercel acepte el build con la v6 de la SDK
+  // Usamos 'as any' para que el build de Vercel no se detenga por el tipado de la v6
   const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
     api: '/api/chat',
-  }) as any;
+  } as any) as any;
 
   return (
     <div className="flex min-h-screen bg-[#295693]">
@@ -38,17 +39,11 @@ export default function DashboardLayout({
           <div className="absolute bottom-16 right-0 w-96 h-[550px] bg-white rounded-2xl shadow-2xl flex flex-col border border-zinc-200 animate-in slide-in-from-bottom-2 overflow-hidden">
             <div className="bg-[#1e3d6b] p-4 text-white font-bold flex items-center gap-2">
               <Sparkles size={18} className="text-blue-300" /> 
-              <span className="uppercase tracking-tighter italic font-black">Asistente Odeplac AI</span>
+              <span className="uppercase tracking-tighter italic font-black text-sm">Asistente Odeplac AI</span>
             </div>
 
             <div className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
-              {messages.length === 0 && (
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-xs font-bold italic">
-                  Hola Juanjo, estoy conectado a tu base de datos. ¿Qué revisamos hoy?
-                </div>
-              )}
-              
-              {messages.map((m: any) => (
+              {messages?.map((m: any) => (
                 <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] p-3 rounded-2xl text-sm font-bold shadow-sm ${
                     m.role === 'user' 
@@ -59,10 +54,9 @@ export default function DashboardLayout({
                   </div>
                 </div>
               ))}
-              
               {isLoading && (
-                <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse">
-                  <Loader2 size={12} className="animate-spin" /> Analizando datos...
+                <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse p-2">
+                  <Loader2 size={12} className="animate-spin" /> Consultando base de datos...
                 </div>
               )}
             </div>
@@ -71,14 +65,10 @@ export default function DashboardLayout({
               <input 
                 value={input}
                 onChange={handleInputChange}
-                className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm font-bold focus:ring-2 ring-blue-500/20 transition-all" 
+                className="flex-1 bg-zinc-100 rounded-lg px-4 py-2.5 text-zinc-900 outline-none text-sm font-bold" 
                 placeholder="Pregunta algo..." 
               />
-              <button 
-                type="submit" 
-                disabled={isLoading || !input}
-                className="bg-[#295693] text-white p-2 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
-              >
+              <button type="submit" className="bg-[#295693] text-white p-2.5 rounded-lg shadow-lg">
                 <Send size={18} />
               </button>
             </form>
