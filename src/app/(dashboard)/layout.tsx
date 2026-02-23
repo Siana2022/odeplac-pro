@@ -1,9 +1,11 @@
 'use client'
 
 import React, { useState } from "react";
-// Usamos ruta relativa para asegurar que VS Code lo encuentre
+// Usamos ruta relativa como tenías
 import Sidebar from "../../components/layout/Sidebar";
-import { MessageCircle, X, Sparkles, Send } from "lucide-react";
+import { MessageCircle, X, Sparkles, Send, Loader2 } from "lucide-react";
+// Importamos el hook de IA
+import { useChat } from 'ai/react';
 
 export default function DashboardLayout({
   children,
@@ -11,7 +13,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
-  const [input, setInput] = useState("");
+  
+  // Conectamos con la API que creamos en el Paso 1
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    api: '/api/chat',
+  });
 
   return (
     <div className="flex min-h-screen bg-[#295693]">
@@ -22,6 +28,7 @@ export default function DashboardLayout({
         </div>
       </main>
 
+      {/* BURBUJA DE IA */}
       <div className="fixed bottom-6 right-6 z-50">
         <button 
           onClick={() => setIsAIChatOpen(!isAIChatOpen)}
@@ -31,24 +38,56 @@ export default function DashboardLayout({
         </button>
 
         {isAIChatOpen && (
-          <div className="absolute bottom-16 right-0 w-96 h-[550px] bg-white rounded-2xl shadow-2xl flex flex-col border border-zinc-200 animate-in slide-in-from-bottom-2">
-            <div className="bg-[#1e3d6b] p-4 text-white font-bold rounded-t-2xl flex items-center gap-2">
-              <Sparkles size={18} /> Asistente Odeplac
+          <div className="absolute bottom-16 right-0 w-96 h-[550px] bg-white rounded-2xl shadow-2xl flex flex-col border border-zinc-200 animate-in slide-in-from-bottom-2 overflow-hidden">
+            {/* Cabecera */}
+            <div className="bg-[#1e3d6b] p-4 text-white font-bold flex items-center gap-2">
+              <Sparkles size={18} className="text-blue-300" /> 
+              <span className="uppercase tracking-tighter italic">Asistente Odeplac AI</span>
             </div>
-            <div className="flex-1 p-4 text-zinc-800 text-sm overflow-y-auto">
-              Hola Juanjo, ¿qué revisamos hoy?
+
+            {/* Cuerpo del Chat */}
+            <div className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
+              {messages.length === 0 && (
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-xs font-bold italic">
+                  Hola Juanjo, estoy conectado a tu base de datos. ¿Qué revisamos hoy?
+                </div>
+              )}
+              
+              {messages.map((m) => (
+                <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm font-bold shadow-sm ${
+                    m.role === 'user' 
+                      ? 'bg-[#295693] text-white rounded-tr-none' 
+                      : 'bg-white text-zinc-800 border border-zinc-200 rounded-tl-none'
+                  }`}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              
+              {isLoading && (
+                <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse">
+                  <Loader2 size={12} className="animate-spin" /> Analizando datos...
+                </div>
+              )}
             </div>
-            <div className="p-3 border-t flex gap-2">
+
+            {/* Input Formulario */}
+            <form onSubmit={handleSubmit} className="p-3 border-t bg-white flex gap-2">
               <input 
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm" 
-                placeholder="Escribe..." 
+                onChange={handleInputChange}
+                className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm font-bold focus:ring-2 ring-blue-500/20 transition-all" 
+                placeholder="Pregunta sobre stock u obras..." 
               />
-              <button className="bg-[#295693] text-white p-2 rounded-lg">
+              <button 
+                type="submit" 
+                disabled={isLoading || !input}
+                className="bg-[#295693] text-white p-2 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
+              >
                 <Send size={18} />
               </button>
-            </div>
+            </form>
           </div>
         )}
       </div>
