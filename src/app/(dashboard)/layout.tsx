@@ -1,96 +1,64 @@
-'use client'
-
-import React, { useState } from "react";
-// Usamos ruta relativa como tenías
-import Sidebar from "../../components/layout/Sidebar";
-import { MessageCircle, X, Sparkles, Send, Loader2 } from "lucide-react";
-// Importamos el hook de IA
-import { useChat } from 'ai/react';
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
+{
+    "name": "tmp_next",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+      "dev": "next dev",
+      "build": "next build",
+      "start": "next start",
+      "lint": "eslint"
+    },
+    "dependencies": {
+      "@ai-sdk/google": "^3.0.30",
+      "@ai-sdk/react": "^3.0.69",
+      "@dnd-kit/core": "^6.3.1",
+      "@dnd-kit/sortable": "^10.0.0",
+      "@dnd-kit/utilities": "^3.2.2",
+      "@ducanh2912/next-pwa": "^10.2.9",
+      "@google/generative-ai": "^0.24.1",
+      "@hookform/resolvers": "^5.2.2",
+      "@radix-ui/react-dialog": "^1.1.15",
+      "@radix-ui/react-dropdown-menu": "^2.1.16",
+      "@radix-ui/react-label": "^2.1.8",
+      "@radix-ui/react-progress": "^1.1.8",
+      "@radix-ui/react-select": "^2.2.6",
+      "@radix-ui/react-slot": "^1.2.4",
+      "@radix-ui/react-tabs": "^1.1.13",
+      "@react-pdf/renderer": "^4.3.2",
+      "@supabase/ssr": "^0.8.0",
+      "@supabase/supabase-js": "^2.93.0",
+      "@tiptap/react": "^3.17.1",
+      "@tiptap/starter-kit": "^3.17.1",
+      "ai": "^6.0.97",
+      "class-variance-authority": "^0.7.1",
+      "clsx": "^2.1.1",
+      "date-fns": "^4.1.0",
+      "jspdf": "^4.1.0",
+      "jspdf-autotable": "^5.0.7",
+      "lucide-react": "^0.563.0",
+      "next": "16.1.5",
+      "next-themes": "^0.4.6",
+      "react": "19.0.1",
+      "react-dom": "19.0.1",
+      "react-hook-form": "^7.71.1",
+      "react-markdown": "^10.1.0",
+      "remark-gfm": "^4.0.1",
+      "resend": "^6.8.0",
+      "sonner": "^2.0.7",
+      "tailwind-merge": "^3.4.0",
+      "use-debounce": "^10.1.0",
+      "zod": "^4.3.6"
+    },
+    "devDependencies": {
+      "@tailwindcss/postcss": "^4",
+      "@types/node": "^20",
+      "@types/react": "^19",
+      "@types/react-dom": "^19",
+      "eslint": "^9",
+      "eslint-config-next": "16.1.5",
+      "tailwindcss": "^4",
+      "tw-animate-css": "^1.4.0",
+      "typescript": "^5"
+    }
+  }
   
-  // Conectamos con la API que creamos en el Paso 1
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
-    api: '/api/chat',
-  });
-
-  return (
-    <div className="flex min-h-screen bg-[#295693]">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-7xl mx-auto">
-          {children}
-        </div>
-      </main>
-
-      {/* BURBUJA DE IA */}
-      <div className="fixed bottom-6 right-6 z-50">
-        <button 
-          onClick={() => setIsAIChatOpen(!isAIChatOpen)}
-          className="h-14 w-14 bg-white text-[#295693] rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-all border-2 border-white/20"
-        >
-          {isAIChatOpen ? <X size={24} /> : <MessageCircle size={24} />}
-        </button>
-
-        {isAIChatOpen && (
-          <div className="absolute bottom-16 right-0 w-96 h-[550px] bg-white rounded-2xl shadow-2xl flex flex-col border border-zinc-200 animate-in slide-in-from-bottom-2 overflow-hidden">
-            {/* Cabecera */}
-            <div className="bg-[#1e3d6b] p-4 text-white font-bold flex items-center gap-2">
-              <Sparkles size={18} className="text-blue-300" /> 
-              <span className="uppercase tracking-tighter italic">Asistente Odeplac AI</span>
-            </div>
-
-            {/* Cuerpo del Chat */}
-            <div className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
-              {messages.length === 0 && (
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-xs font-bold italic">
-                  Hola Juanjo, estoy conectado a tu base de datos. ¿Qué revisamos hoy?
-                </div>
-              )}
-              
-              {messages.map((m) => (
-                <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm font-bold shadow-sm ${
-                    m.role === 'user' 
-                      ? 'bg-[#295693] text-white rounded-tr-none' 
-                      : 'bg-white text-zinc-800 border border-zinc-200 rounded-tl-none'
-                  }`}>
-                    {m.content}
-                  </div>
-                </div>
-              ))}
-              
-              {isLoading && (
-                <div className="flex items-center gap-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest animate-pulse">
-                  <Loader2 size={12} className="animate-spin" /> Analizando datos...
-                </div>
-              )}
-            </div>
-
-            {/* Input Formulario */}
-            <form onSubmit={handleSubmit} className="p-3 border-t bg-white flex gap-2">
-              <input 
-                value={input}
-                onChange={handleInputChange}
-                className="flex-1 bg-zinc-100 rounded-lg px-3 py-2 text-zinc-900 outline-none text-sm font-bold focus:ring-2 ring-blue-500/20 transition-all" 
-                placeholder="Pregunta sobre stock u obras..." 
-              />
-              <button 
-                type="submit" 
-                disabled={isLoading || !input}
-                className="bg-[#295693] text-white p-2 rounded-lg hover:bg-blue-800 disabled:opacity-50 transition-colors"
-              >
-                <Send size={18} />
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}

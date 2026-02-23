@@ -2,7 +2,7 @@ import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { createClient } from '@/lib/supabase/server';
 
-// Permitir respuestas de hasta 30 segundos (Vercel Free/Pro)
+// Permitir respuestas de hasta 30 segundos
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       .single();
 
     if (perfil?.rol !== 'admin') {
-      return new Response('No autorizado: Solo administradores pueden usar la IA', { status: 403 });
+      return new Response('Acceso denegado: IA solo para administradores', { status: 403 });
     }
 
     // 2. Obtener Contexto de la Base de Datos
@@ -32,24 +32,24 @@ export async function POST(req: Request) {
 
     // 3. Configurar el System Prompt
     const systemPrompt = `
-      Eres el asistente inteligente de Odeplac Pro. 
-      Tu objetivo es ayudar a los administradores a gestionar el inventario y las obras.
+      Eres el asistente inteligente oficial de Odeplac Pro. 
+      Hablas directamente con Juanjo, el administrador.
       
-      DATOS REALES DE LA BASE DE DATOS:
+      DATOS REALES DE TU BASE DE DATOS:
       - Materiales y Stock: ${JSON.stringify(materiales)}
       - Obras y Estados: ${JSON.stringify(obras)}
       
-      INSTRUCCIONES:
-      - Responde de forma concisa y profesional.
-      - Si te preguntan por stock, da el número exacto si lo tienes.
-      - Si te preguntan por precios, usa el precio_coste.
-      - Mantén un tono ejecutivo y directo.
+      INSTRUCCIONES DE RESPUESTA:
+      - Sé extremadamente directo y profesional.
+      - Si te preguntan "¿cuánto stock hay?", da el número exacto sin rodeos.
+      - Si te preguntan por obras, menciona su estado actual.
+      - No inventes datos que no estén en los JSON de arriba.
     `;
 
-    // 4. Llamar a Gemini 2.5 (Modelo 2.0 Flash para máxima velocidad)
+    // 4. Llamar a Gemini 2.0 Flash (el motor 2.5)
     const result = await streamText({
       model: google('gemini-2.0-flash-exp'),
-      messages, // Enviamos los mensajes directamente
+      messages, 
       system: systemPrompt,
     });
 
@@ -57,6 +57,6 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error('Error en Chat API:', error);
-    return new Response('Error interno en el servidor de IA', { status: 500 });
+    return new Response('Error en el servicio de IA', { status: 500 });
   }
 }
