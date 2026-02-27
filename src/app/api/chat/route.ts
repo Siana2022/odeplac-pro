@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 
+// Esto es CRÍTICO: le dice a Vercel que no se rinda si el VPS tarda en responder
+export const maxDuration = 60; 
+
 export async function POST(req: Request) {
   try {
     const supabase = createClient(
@@ -11,39 +14,36 @@ export async function POST(req: Request) {
     const body = await req.json();
     const rawMessages = body.messages || [];
 
-    // 1. CARGA DE DATOS DESDE SUPABASE
+    // CARGA DE DATOS (Mantenemos los filtros de tus 8 clientes)
     const [
       { data: clientes }, 
       { data: materiales },
       { data: obras }
     ] = await Promise.all([
       supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
-      supabase.from('materiales').select('nombre, precio_coste').ilike('nombre', '%placa%').limit(50),
+      supabase.from('materiales').select('nombre, precio_coste').ilike('nombre', '%placa%').limit(20),
       supabase.from('obras').select('titulo, estado')
     ]);
 
-    const systemPrompt = `Eres OdeplacAI. Interlocutora: OMAYRA.
-    - Clientes reales: ${clientes?.map(c => c.nombre).join(", ")}
-    - Obras: ${obras?.map(o => o.titulo).join(", ")}
-    - Materiales: ${materiales?.map(m => m.nombre).join(", ")}
-    Responde de forma muy breve.`;
+    const systemPrompt = `Eres OdeplacAI. Interlocutora: OMAYRA. 
+    Clientes (${clientes?.length || 0}): ${clientes?.map(c => c.nombre).join(", ")}. 
+    Responde muy breve.`;
 
-    // 2. LLAMADA A TU PROPIO SERVIDOR OLLAMA (CONTABO)
+    // LLAMADA A TU OLLAMA (Cambiado a phi3.5 que es mucho más rápido en CPU)
     const response = await fetch("http://5.189.161.169:11434/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3.2:3b",
+        model: "phi3.5", 
         messages: [
           { role: "system", content: systemPrompt },
           ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
         ],
-        stream: false // Para que la respuesta llegue completa de una vez
+        stream: false 
       })
     });
 
     if (!response.ok) throw new Error("Ollama no responde");
-
     const data = await response.json();
 
     return NextResponse.json({ 
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR EN TU SERVIDOR:", error.message);
-    return NextResponse.json({ error: "OdeplacAI está descansando... (Ollama error)" }, { status: 500 });
+    console.error("❌ ERROR:", error.message);
+    return NextResponse.json({ error: "OdeplacAI procesando... reintenta en un momento." }, { status: 500 });
   }
 }
