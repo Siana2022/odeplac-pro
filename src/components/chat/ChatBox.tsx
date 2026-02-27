@@ -13,7 +13,7 @@ export default function ChatBox() {
 
   useEffect(() => {
     setMounted(true);
-    console.log("🚀 [CHIVATO]: Chat manual activado. Cero librerías, cero errores.");
+    console.log("🚀 [ODEPLAC-AI]: Chat listo y manual.");
   }, []);
 
   useEffect(() => {
@@ -27,36 +27,50 @@ export default function ChatBox() {
     const val = textInput.trim();
     if (!val || isLoading) return;
 
-    console.log("📩 [CHIVATO]: Enviando vía FETCH manual:", val);
-    
-    // 1. Añadimos mensaje del usuario localmente
+    // Creamos el mensaje para nuestra pantalla (con ID para React)
     const userMsg = { id: Date.now().toString(), role: 'user', content: val };
     const newMessages = [...messages, userMsg];
+    
     setMessages(newMessages);
     setTextInput("");
     setIsLoading(true);
 
     try {
-      // 2. Llamada directa a tu API de Groq
+      // LIMPIEZA CRÍTICA: Groq SOLO acepta 'role' y 'content'
+      const cleanMessages = newMessages.map(({ role, content }) => ({ 
+        role, 
+        content 
+      }));
+
+      console.log("📩 [CHIVATO]: Enviando a API datos limpios...");
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: cleanMessages }),
       });
 
-      if (!response.ok) throw new Error("Error en la respuesta de OdeplacAI");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Error en la respuesta");
+      }
 
       const data = await response.json();
-      console.log("✅ [CHIVATO]: Respuesta recibida:", data);
+      console.log("✅ [CHIVATO]: Respuesta de IA recibida.");
 
-      // 3. Añadimos respuesta de la IA
-      setMessages((prev) => [...prev, data]);
+      // Añadimos la respuesta a la pantalla
+      setMessages((prev) => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'assistant', 
+        content: data.content 
+      }]);
+
     } catch (err: any) {
-      console.error("❌ [CHIVATO]: Error crítico:", err.message);
+      console.error("❌ [CHIVATO] Error:", err.message);
       setMessages((prev) => [...prev, { 
         id: 'err', 
         role: 'assistant', 
-        content: "Lo siento Omayra, ha habido un problema de conexión. ¿Puedes reintentarlo?" 
+        content: `Error: ${err.message}. Revisa Groq o Vercel.` 
       }]);
     } finally {
       setIsLoading(false);
@@ -67,6 +81,7 @@ export default function ChatBox() {
 
   return (
     <>
+      {/* BOTÓN FLOTANTE */}
       <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 999999999 }}>
         <button 
           onClick={() => setIsOpen(!isOpen)}
@@ -80,6 +95,7 @@ export default function ChatBox() {
         </button>
       </div>
 
+      {/* VENTANA DE CHAT */}
       {isOpen && (
         <div style={{ 
           position: 'fixed', bottom: '100px', right: '24px', width: 'calc(100vw - 48px)',
@@ -87,6 +103,7 @@ export default function ChatBox() {
           boxShadow: '0 20px 50px rgba(0,0,0,0.4)', border: '1px solid #e2e8f0',
           zIndex: 999999998, display: 'flex', flexDirection: 'column', overflow: 'hidden'
         }}>
+          {/* Cabecera */}
           <div style={{ padding: '16px', background: '#1e3d6b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
               <Sparkles size={18} color="#93c5fd" /> ODEPLAC AI
@@ -94,10 +111,11 @@ export default function ChatBox() {
             <X size={24} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
           </div>
 
+          {/* Área de Mensajes */}
           <div ref={scrollRef} style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '40px' }}>
-                Hola Omayra. Ahora sí, ¿qué necesitas consultar?
+                Hola Omayra. ¿Qué necesitas consultar hoy?
               </div>
             )}
             {messages.map((m: any) => (
@@ -120,7 +138,8 @@ export default function ChatBox() {
             )}
           </div>
 
-          <form onSubmit={handleFormSubmit} style={{ padding: '16px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
+          {/* Formulario */}
+          <form onSubmit={handleFormSubmit} style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: 'white', display: 'flex', gap: '10px' }}>
             <input 
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
@@ -135,7 +154,7 @@ export default function ChatBox() {
             <button 
               type="submit" 
               disabled={isLoading || !textInput.trim()}
-              style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
+              style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer', opacity: (isLoading || !textInput.trim()) ? 0.5 : 1 }}
             >
               <Send size={22} />
             </button>
