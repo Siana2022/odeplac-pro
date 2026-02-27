@@ -7,14 +7,15 @@ import { useChat } from '@ai-sdk/react';
 export default function ChatBox() {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [textInput, setTextInput] = useState(""); // Gestionamos el texto nosotros
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  const chatData = useChat() as any;
-  const { messages = [], input = '', handleInputChange, handleSubmit, isLoading } = chatData;
+  // Solo sacamos lo que realmente funciona bien: mensajes y estado de carga
+  const { messages, append, isLoading } = useChat() as any;
 
   useEffect(() => {
     setMounted(true);
-    console.log("🔍 [CHIVATO]: Componente montado correctamente.");
+    console.log("🔍 [CHIVATO]: Montado. Usando gestión de texto manual.");
   }, []);
 
   useEffect(() => {
@@ -23,14 +24,20 @@ export default function ChatBox() {
     }
   }, [messages, isOpen]);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("📩 [CHIVATO]: Enviando mensaje:", input);
+    const val = textInput.trim();
+    if (!val || isLoading) return;
+
+    console.log("📩 [CHIVATO]: Enviando manualmente:", val);
+    
     try {
-      handleSubmit(e);
-      console.log("✅ [CHIVATO]: handleSubmit llamado.");
+      // Usamos 'append' que es la función más estable del SDK
+      await append({ role: 'user', content: val });
+      setTextInput(""); // Limpiamos el cuadro al enviar
+      console.log("✅ [CHIVATO]: Mensaje enviado y cuadro limpiado.");
     } catch (err) {
-      console.error("❌ [CHIVATO]: Error en envío:", err);
+      console.error("❌ [CHIVATO]: Error al enviar:", err);
     }
   };
 
@@ -38,14 +45,11 @@ export default function ChatBox() {
 
   return (
     <>
-      {/* BOTÓN BURBUJA - Corregido 'justifyContent' */}
+      {/* BOTÓN BURBUJA */}
       <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 999999999 }}>
         <button 
           type="button"
-          onClick={() => {
-            console.log("🔘 [CHIVATO]: Click burbuja. Nuevo estado:", !isOpen);
-            setIsOpen(!isOpen);
-          }}
+          onClick={() => setIsOpen(!isOpen)}
           style={{
             height: '64px', width: '64px', backgroundColor: '#295693', color: 'white',
             borderRadius: '50%', border: '4px solid white', boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
@@ -72,7 +76,7 @@ export default function ChatBox() {
             <X size={24} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
           </div>
 
-          {/* Mensajes */}
+          {/* Área de Mensajes */}
           <div ref={scrollRef} style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '40px' }}>
@@ -99,17 +103,14 @@ export default function ChatBox() {
             )}
           </div>
 
-          {/* Formulario con Chivatos de Escritura */}
+          {/* Formulario con texto controlado por nosotros */}
           <form 
             onSubmit={handleFormSubmit}
             style={{ padding: '16px', borderTop: '2px solid #f1f5f9', background: 'white', display: 'flex', gap: '10px' }}
           >
             <input 
-              value={input}
-              onChange={(e) => {
-                console.log("⌨️ [CHIVATO]: Escribiendo...");
-                handleInputChange(e);
-              }}
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)} // Esto NO fallará nunca
               placeholder="Escribe aquí..."
               autoFocus
               style={{ 
@@ -120,8 +121,8 @@ export default function ChatBox() {
             />
             <button 
               type="submit" 
-              disabled={isLoading || !input.trim()}
-              style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
+              disabled={isLoading || !textInput.trim()}
+              style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer', opacity: (isLoading || !textInput.trim()) ? 0.5 : 1 }}
             >
               <Send size={22} />
             </button>
