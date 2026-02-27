@@ -9,19 +9,14 @@ import remarkGfm from 'remark-gfm';
 export default function ChatBox() {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [localInput, setLocalInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // Chivato 1: Ver qué nos devuelve el hook al cargar
-  const chatHelpers = useChat({
-    api: '/api/chat',
-  });
-
-  const { messages, setMessages, isLoading } = chatHelpers;
+  // Usamos las funciones nativas del SDK para evitar errores de tipos
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat();
 
   useEffect(() => {
     setMounted(true);
-    console.log("🚀 [CHIVATO]: Componente ChatBox montado correctamente");
+    console.log("🚀 [CHIVATO]: Componente ChatBox montado");
   }, []);
 
   useEffect(() => {
@@ -30,57 +25,13 @@ export default function ChatBox() {
     }
   }, [messages]);
 
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    
-    console.log("📩 [CHIVATO]: Intentando enviar mensaje...");
-    const textToSend = localInput.trim();
-    
-    if (!textToSend) {
-        console.warn("⚠️ [CHIVATO]: Intento de envío con texto vacío");
-        return;
-    }
-
-    // Añadimos el mensaje del usuario visualmente
-    const userMsg = { id: Date.now().toString(), role: 'user' as const, content: textToSend };
-    setMessages([...messages, userMsg]);
-    setLocalInput('');
-    console.log("✅ [CHIVATO]: Mensaje de usuario añadido a la lista");
-
-    try {
-      console.log("📡 [CHIVATO]: Llamando a la API /api/chat...");
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...messages, userMsg] }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error en la API: ${response.status}`);
-      }
-
-      // Leemos la respuesta (suponiendo que no es stream por ahora para asegurar que llega)
-      const data = await response.json();
-      console.log("🎯 [CHIVATO]: Respuesta recibida de la IA:", data);
-
-      setMessages((prev: any) => [...prev, data]);
-      
-    } catch (err: any) {
-      console.error("❌ [CHIVATO] ERROR CRÍTICO:", err.message);
-      // Si falla, podrías avisar al usuario aquí
-    }
-  };
-
   if (!mounted) return null;
 
   return (
     <div className="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 z-[9999]">
       <button 
         type="button"
-        onClick={() => {
-            console.log("🔘 [CHIVATO]: Click en botón burbuja. Estado anterior:", isAIChatOpen);
-            setIsAIChatOpen(!isAIChatOpen);
-        }}
+        onClick={() => setIsAIChatOpen(!isAIChatOpen)}
         className="h-14 w-14 bg-[#295693] text-white rounded-full shadow-2xl flex items-center justify-center border-2 border-white hover:scale-110 transition-all"
       >
         {isAIChatOpen ? <X size={24} /> : <MessageCircle size={24} />}
@@ -95,7 +46,7 @@ export default function ChatBox() {
           </div>
 
           <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
-            {messages.map((m: any) => (
+            {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] p-4 rounded-2xl text-sm shadow-sm ${
                   m.role === 'user' 
@@ -108,20 +59,18 @@ export default function ChatBox() {
             ))}
           </div>
 
-          <form onSubmit={handleSend} className="p-4 border-t bg-white flex gap-2 pb-8 lg:pb-4 shrink-0">
+          <form onSubmit={handleSubmit} className="p-4 border-t bg-white flex gap-2 pb-8 lg:pb-4 shrink-0">
             <input 
-              value={localInput}
-              onChange={(e) => {
-                  setLocalInput(e.target.value);
-                  console.log("⌨️ [CHIVATO]: Escribiendo...", e.target.value);
-              }}
+              value={input}
+              onChange={handleInputChange}
               className="flex-1 bg-zinc-100 rounded-2xl px-4 py-3 text-sm text-zinc-900 outline-none font-bold" 
               placeholder="Escribe aquí..."
               autoFocus
             />
             <button 
               type="submit" 
-              className="bg-[#295693] text-white p-3 rounded-2xl"
+              disabled={isLoading}
+              className="bg-[#295693] text-white p-3 rounded-2xl disabled:opacity-50"
             >
               {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
             </button>
