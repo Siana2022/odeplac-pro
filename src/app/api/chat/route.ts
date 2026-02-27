@@ -1,14 +1,8 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
   try {
-    const groq = new OpenAI({ 
-      apiKey: process.env.GROQ_API_KEY, 
-      baseURL: "https://api.groq.com/openai/v1" 
-    });
-    
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!, 
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -17,72 +11,49 @@ export async function POST(req: Request) {
     const body = await req.json();
     const rawMessages = body.messages || [];
 
-    // 1. CARGA OPTIMIZADA (Para que no explote el límite de Groq en producción)
+    // 1. CARGA DE DATOS DESDE SUPABASE
     const [
       { data: clientes }, 
       { data: materiales },
-      { data: seguimiento },
-      { data: obras },
-      { data: proveedores }
+      { data: obras }
     ] = await Promise.all([
-      // Filtramos clientes para que solo cuente los que tienen nombre (tus 8 clientes reales)
       supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
-      // Buscamos materiales, asegurándonos de traer las placas de yeso
-      supabase.from('materiales').select('nombre, precio_coste, categoria, unidad').limit(150),
-      supabase.from('obra_seguimiento').select('mensaje, created_at').order('created_at', { ascending: false }).limit(10),
-      supabase.from('obras').select('titulo, estado'),
-      supabase.from('proveedores').select('nombre')
+      supabase.from('materiales').select('nombre, precio_coste').ilike('nombre', '%placa%').limit(50),
+      supabase.from('obras').select('titulo, estado')
     ]);
 
-    // 2. CONSTRUCCIÓN DEL SYSTEM PROMPT (Formato texto plano para ahorrar tokens)
-    const systemPrompt = `Eres OdeplacAI, la Consultora Estratégica de Odeplac Pro. Tu interlocutora es OMAYRA.
-    
-    INFORMACIÓN REAL DE LA BASE DE DATOS:
-    
-    CLIENTES (${clientes?.length || 0} registrados):
-    ${clientes?.map(c => c.nombre).join(", ")}
+    const systemPrompt = `Eres OdeplacAI. Interlocutora: OMAYRA.
+    - Clientes reales: ${clientes?.map(c => c.nombre).join(", ")}
+    - Obras: ${obras?.map(o => o.titulo).join(", ")}
+    - Materiales: ${materiales?.map(m => m.nombre).join(", ")}
+    Responde de forma muy breve.`;
 
-    OBRAS ACTIVAS:
-    ${obras?.map(o => `${o.titulo} (Estado: ${o.estado})`).join(" | ")}
-
-    MATERIALES Y STOCK:
-    ${materiales?.map(m => `- ${m.nombre}: ${m.precio_coste}€ (${m.categoria || 'Sin categoría'})`).join("\n")}
-
-    PROVEEDORES:
-    ${proveedores?.map(p => p.nombre).join(", ")}
-
-    ÚLTIMO SEGUIMIENTO:
-    ${seguimiento?.map(s => s.mensaje).join(" || ")}
-
-    INSTRUCCIONES IMPORTANTES PARA ODEPLACAI:
-    - OMAYRA es tu jefa. Sé profesional y directa.
-    - Si te pregunta por "cuántos clientes", di exactamente ${clientes?.length || 0}.
-    - Si te pregunta por "placas de yeso", busca en la lista de MATERIALES arriba.
-    - Si no encuentras un dato específico, di: "Omayra, no veo ese registro en las tablas, ¿lo hemos dado de alta?".
-    - Responde de forma concisa para evitar errores de conexión.`;
-
-    // 3. LLAMADA A GROQ LIMPIA
-    const response = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
-      ],
-      temperature: 0.1, // Precisión total
-      max_tokens: 500   // Evita que la respuesta sea demasiado larga y corte la conexión
+    // 2. LLAMADA A TU PROPIO SERVIDOR OLLAMA (CONTABO)
+    const response = await fetch("http://5.189.161.169:11434/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama3.2:3b",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
+        ],
+        stream: false // Para que la respuesta llegue completa de una vez
+      })
     });
+
+    if (!response.ok) throw new Error("Ollama no responde");
+
+    const data = await response.json();
 
     return NextResponse.json({ 
       id: Date.now().toString(), 
       role: "assistant", 
-      content: response.choices[0]?.message?.content 
+      content: data.message.content 
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR CRÍTICO ODEPLACAI:", error.message);
-    return NextResponse.json(
-      { error: "Error de conexión con la base de datos de Odeplac." }, 
-      { status: 500 }
-    );
+    console.error("❌ ERROR EN TU SERVIDOR:", error.message);
+    return NextResponse.json({ error: "OdeplacAI está descansando... (Ollama error)" }, { status: 500 });
   }
 }
