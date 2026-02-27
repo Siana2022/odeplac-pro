@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const rawMessages = body.messages || [];
 
-    // 1. CARGA MASIVA DE LAS 5 TABLAS (Configuradas para consulta profunda)
+    // 1. CARGA DE TABLAS (Reducida para evitar el error 429)
     const [
       { data: clientes }, 
       { data: materiales },
@@ -18,51 +18,32 @@ export async function POST(req: Request) {
       { data: obras },
       { data: proveedores }
     ] = await Promise.all([
-      supabase.from('clientes').select('*'),
-      // Limitamos a 200 materiales para asegurar que quepan los proveedores y seguimientos en el límite de Groq
-      supabase.from('materiales').select('nombre, precio_coste, categoria, unidad').limit(200),
-      supabase.from('obra_seguimiento').select('*').order('created_at', { ascending: false }).limit(15),
-      supabase.from('obras').select('*, clientes(nombre)'),
-      supabase.from('proveedores').select('*')
+      supabase.from('clientes').select('nombre').limit(20),
+      // Bajamos a 100 materiales para no saturar el Rate Limit
+      supabase.from('materiales').select('nombre, precio_coste, categoria').limit(100),
+      supabase.from('obra_seguimiento').select('mensaje').limit(5),
+      supabase.from('obras').select('titulo, estado'),
+      supabase.from('proveedores').select('nombre').limit(10)
     ]);
 
-    console.log(`--- 📊 ODEPLACAI CARGA TOTAL ---`);
-    console.log(`Proveedores encontrados: ${proveedores?.length || 0}`);
+    const systemPrompt = `Eres OdeplacAI, consultora de Odeplac Pro. Hablas con OMAYRA.
+    DATOS ACTUALES:
+    - Clientes: ${clientes?.map(c => c.nombre).join(", ")}
+    - Obras: ${obras?.map(o => o.titulo + "(" + o.estado + ")").join(", ")}
+    - Proveedores: ${proveedores?.map(p => p.nombre).join(", ")}
+    - Muestra Materiales: ${materiales?.map(m => m.nombre + "(" + m.precio_coste + "€)").join(", ")}
+    - Últimos hitos: ${seguimiento?.map(s => s.mensaje).join(" | ")}
 
-    // 2. CONSTRUCCIÓN DEL SYSTEM PROMPT CON TODAS LAS TABLAS
-    const systemPrompt = `Eres OdeplacAI, la Consultora Estratégica de Odeplac Pro. Tu interlocutora es OMAYRA.
-    Tienes acceso a toda la información de la empresa. Úsala para responder con precisión:
+    REGLA: Responde de forma muy breve y directa para ahorrar recursos.`;
 
-    TABLA CLIENTES:
-    ${JSON.stringify(clientes || [])}
-
-    TABLA MATERIALES (Nombre, Coste, Categoría, Unidad):
-    ${JSON.stringify(materiales || [])}
-
-    TABLA OBRA_SEGUIMIENTO (Últimos mensajes y estados):
-    ${JSON.stringify(seguimiento || [])}
-
-    TABLA OBRAS (Información de proyectos y presupuestos):
-    ${JSON.stringify(obras || [])}
-
-    TABLA PROVEEDORES (Información completa):
-    ${JSON.stringify(proveedores || [])}
-
-    INSTRUCCIONES:
-    - OMAYRA es tu interlocutora. Sé profesional y ejecutiva.
-    - Si te pregunta por PROVEEDORES, busca en la TABLA PROVEEDORES y dáselos todos.
-    - Si te pregunta por MATERIALES, busca en su tabla correspondiente (nombres técnicos y costes).
-    - Para el seguimiento de obras, cruza la información de OBRAS con OBRA_SEGUIMIENTO.
-    - No inventes datos. Si algo no aparece, di: "Omayra, no veo registros de ese dato en las tablas de la base de datos".`;
-
-    // 3. LLAMADA A GROQ
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
-        ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
+        ...rawMessages
       ],
-      temperature: 0.1, // Máxima precisión
+      temperature: 0.1,
+      max_tokens: 500 // Respuesta corta para evitar bloqueos
     });
 
     return NextResponse.json({ 
@@ -72,7 +53,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR CRÍTICO ODEPLACAI:", error.message);
-    return NextResponse.json({ error: "Error al consultar las bases de datos." }, { status: 500 });
+    console.error("❌ ERROR EN API:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
