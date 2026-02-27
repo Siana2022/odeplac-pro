@@ -14,7 +14,7 @@ export default function ChatBox() {
 
   useEffect(() => {
     setMounted(true);
-    console.log("🔍 [CHIVATO]: Componente montado. Listo para operar.");
+    console.log("🔍 [CHIVATO]: Componente montado correctamente.");
   }, []);
 
   useEffect(() => {
@@ -23,19 +23,14 @@ export default function ChatBox() {
     }
   }, [messages, isOpen]);
 
-  // Chivato para detectar errores en el envío
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("📩 [CHIVATO]: Intentando enviar mensaje:", input);
-    if (!input.trim()) {
-      console.warn("⚠️ [CHIVATO]: El input está vacío, no se envía nada.");
-      return;
-    }
+    console.log("📩 [CHIVATO]: Enviando mensaje:", input);
     try {
       handleSubmit(e);
-      console.log("✅ [CHIVATO]: handleSubmit ejecutado correctamente.");
+      console.log("✅ [CHIVATO]: handleSubmit llamado.");
     } catch (err) {
-      console.error("❌ [CHIVATO]: Error al ejecutar handleSubmit:", err);
+      console.error("❌ [CHIVATO]: Error en envío:", err);
     }
   };
 
@@ -43,18 +38,18 @@ export default function ChatBox() {
 
   return (
     <>
-      {/* BOTÓN BURBUJA */}
+      {/* BOTÓN BURBUJA - Corregido 'justifyContent' */}
       <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 999999999 }}>
         <button 
           type="button"
           onClick={() => {
-            console.log("🔘 [CHIVATO]: Click en burbuja. Estado previo:", isOpen);
+            console.log("🔘 [CHIVATO]: Click burbuja. Nuevo estado:", !isOpen);
             setIsOpen(!isOpen);
           }}
           style={{
             height: '64px', width: '64px', backgroundColor: '#295693', color: 'white',
             borderRadius: '50%', border: '4px solid white', boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyCenter: 'center'
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
           }}
         >
           {isOpen ? <X size={32} /> : <MessageCircle size={32} />}
@@ -77,38 +72,34 @@ export default function ChatBox() {
             <X size={24} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
           </div>
 
-          {/* Área de Mensajes */}
+          {/* Mensajes */}
           <div ref={scrollRef} style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '40px' }}>
                 Hola Omayra. ¿En qué puedo ayudarte?
               </div>
             )}
-            {messages.map((m: any, idx: number) => {
-              console.log(`💬 [CHIVATO]: Renderizando mensaje ${idx} del rol ${m.role}`);
-              return (
-                <div key={m.id || idx} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-                  <div style={{ 
-                    padding: '12px 16px', borderRadius: '16px', fontSize: '14px',
-                    backgroundColor: m.role === 'user' ? '#295693' : 'white',
-                    color: m.role === 'user' ? 'white' : '#000', // Aseguramos color negro para IA
-                    border: m.role === 'user' ? 'none' : '1px solid #e2e8f0',
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {m.content}
-                  </div>
+            {messages.map((m: any, idx: number) => (
+              <div key={m.id || idx} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                <div style={{ 
+                  padding: '12px 16px', borderRadius: '16px', fontSize: '14px',
+                  backgroundColor: m.role === 'user' ? '#295693' : 'white',
+                  color: m.role === 'user' ? 'white' : '#000',
+                  border: m.role === 'user' ? 'none' : '1px solid #e2e8f0',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {m.content}
                 </div>
-              );
-            })}
+              </div>
+            ))}
             {isLoading && (
-              <div style={{ alignSelf: 'flex-start', padding: '10px' }}>
+              <div style={{ padding: '10px' }}>
                 <Loader2 className="animate-spin" size={20} color="#295693" />
-                <span style={{ fontSize: '10px', color: '#295693', marginLeft: '5px' }}>Pensando...</span>
               </div>
             )}
           </div>
 
-          {/* Formulario */}
+          {/* Formulario con Chivatos de Escritura */}
           <form 
             onSubmit={handleFormSubmit}
             style={{ padding: '16px', borderTop: '2px solid #f1f5f9', background: 'white', display: 'flex', gap: '10px' }}
@@ -116,15 +107,15 @@ export default function ChatBox() {
             <input 
               value={input}
               onChange={(e) => {
-                console.log("⌨️ [CHIVATO]: Tecleando:", e.target.value);
+                console.log("⌨️ [CHIVATO]: Escribiendo...");
                 handleInputChange(e);
               }}
-              placeholder="Escribe tu consulta..."
+              placeholder="Escribe aquí..."
               autoFocus
               style={{ 
                 flex: 1, padding: '14px', borderRadius: '12px', background: '#fff', 
-                border: '2px solid #295693', // Borde azul para que se vea bien
-                outline: 'none', fontSize: '16px', color: '#000', fontWeight: 'bold'
+                border: '2px solid #295693', outline: 'none', fontSize: '16px', 
+                color: '#000', fontWeight: 'bold'
               }}
             />
             <button 
