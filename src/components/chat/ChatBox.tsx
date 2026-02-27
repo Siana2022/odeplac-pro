@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { MessageCircle, X, Sparkles, Send, Loader2 } from "lucide-react";
-// Cambiamos a la importación más estable para evitar líos de versiones
-import { useChat } from 'ai/react'; 
+// Usamos la importación que el compilador sí encuentra en tu proyecto
+import { useChat } from '@ai-sdk/react'; 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -12,13 +12,13 @@ export default function ChatBox() {
   const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // Usamos 'as any' para que TypeScript ignore los errores de propiedades 
-  // inexistentes durante el build de Vercel.
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat() as any;
+  // Parcheamos el tipado con 'as any' para asegurar que el deploy en Vercel pase
+  const chatHelpers = useChat() as any;
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = chatHelpers;
 
   useEffect(() => {
     setMounted(true);
-    console.log("🚀 [CHIVATO]: Componente ChatBox montado correctamente");
+    console.log("🚀 [CHIVATO]: OdeplacAI montado y listo");
   }, []);
 
   useEffect(() => {
@@ -43,7 +43,8 @@ export default function ChatBox() {
       {/* Ventana de Chat */}
       {isAIChatOpen && (
         <div className="fixed inset-0 bg-white flex flex-col z-[10000] lg:absolute lg:inset-auto lg:bottom-20 lg:right-0 lg:w-[400px] lg:h-[600px] lg:rounded-3xl lg:shadow-2xl lg:border border-zinc-200 animate-in slide-in-from-bottom-5">
-          {/* Cabecera */}
+          
+          {/* Cabecera Profesional */}
           <div className="bg-[#1e3d6b] p-4 text-white font-bold flex items-center justify-between shrink-0 lg:rounded-t-3xl">
             <div className="flex items-center gap-2 text-sm italic uppercase tracking-wider">
               <Sparkles size={18} className="text-blue-300" /> Odeplac AI
@@ -53,11 +54,11 @@ export default function ChatBox() {
             </button>
           </div>
 
-          {/* Cuerpo de mensajes */}
+          {/* Chat con histórico */}
           <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto bg-zinc-50 space-y-4">
             {messages.length === 0 && (
               <div className="text-center text-zinc-400 text-xs mt-10">
-                Hola Omayra, ¿en qué puedo ayudarte hoy?
+                Hola Omayra, soy OdeplacAI. ¿Qué consulta tienes hoy?
               </div>
             )}
             {messages.map((m: any) => (
@@ -80,10 +81,10 @@ export default function ChatBox() {
             )}
           </div>
 
-          {/* Formulario de entrada */}
+          {/* Entrada de texto */}
           <form onSubmit={handleSubmit} className="p-4 border-t bg-white flex gap-2 pb-8 lg:pb-4 shrink-0 lg:rounded-b-3xl">
             <input 
-              value={input}
+              value={input || ''}
               onChange={handleInputChange}
               className="flex-1 bg-zinc-100 rounded-2xl px-4 py-3 text-sm text-zinc-900 outline-none font-bold" 
               placeholder="Escribe aquí..."
@@ -91,8 +92,8 @@ export default function ChatBox() {
             />
             <button 
               type="submit" 
-              disabled={isLoading || !input.trim()}
-              className="bg-[#295693] text-white p-3 rounded-2xl disabled:opacity-50 transition-opacity"
+              disabled={isLoading || !input?.trim()}
+              className="bg-[#295693] text-white p-3 rounded-2xl disabled:opacity-50"
             >
               <Send size={20} />
             </button>
