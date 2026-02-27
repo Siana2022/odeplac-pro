@@ -18,85 +18,136 @@ export default function ChatBox() {
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && isOpen) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen]); // También hacemos scroll al abrir
+  }, [messages, isOpen]);
 
   if (!mounted) return null;
 
   return (
     <>
-      {/* 1. EL BOTÓN - Siempre visible y por encima de todo */}
-      <div className="fixed bottom-6 right-6" style={{ zIndex: 9999999 }}>
+      {/* CAPA 1: EL BOTÓN FLOTANTE (ESTILO SIEMPRE ENCIMA) */}
+      <div 
+        style={{ 
+          position: 'fixed', 
+          bottom: '24px', 
+          right: '24px', 
+          zIndex: 999999999, // Nivel astronómico
+          display: 'block'
+        }}
+      >
         <button 
           type="button"
-          onClick={() => {
-            console.log("🚀 [ODEPLACAI]: Toggle ventana. Nuevo estado:", !isOpen);
-            setIsOpen(!isOpen);
+          onClick={() => setIsOpen(!isOpen)}
+          style={{
+            height: '64px',
+            width: '64px',
+            backgroundColor: '#295693',
+            color: 'white',
+            borderRadius: '50%',
+            border: '4px solid white',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s'
           }}
-          className="h-16 w-16 bg-[#295693] text-white rounded-full shadow-[0_10px_40px_rgba(0,0,0,0.4)] flex items-center justify-center border-4 border-white hover:scale-110 active:scale-95 transition-all cursor-pointer"
         >
-          {isOpen ? <X size={30} /> : <MessageCircle size={30} />}
+          {isOpen ? <X size={32} /> : <MessageCircle size={32} />}
         </button>
       </div>
 
-      {/* 2. LA VENTANA - Usamos FIXED absoluto para que no dependa de ningún padre */}
+      {/* CAPA 2: LA VENTANA DE CHAT */}
       {isOpen && (
         <div 
-          className="fixed bottom-24 right-4 left-4 top-4 lg:left-auto lg:top-auto lg:bottom-24 lg:right-6 lg:w-[420px] lg:h-[650px] bg-white flex flex-col rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] border border-zinc-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-          style={{ zIndex: 9999998 }}
+          style={{ 
+            position: 'fixed', 
+            bottom: '100px', 
+            right: '24px', 
+            width: 'calc(100vw - 48px)',
+            maxWidth: '400px',
+            height: '600px',
+            maxHeight: 'calc(100vh - 120px)',
+            backgroundColor: 'white',
+            borderRadius: '24px',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.4)',
+            border: '1px solid #e2e8f0',
+            zIndex: 999999998,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
         >
-          {/* Cabecera */}
-          <div className="bg-[#1e3d6b] p-5 text-white flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 font-bold uppercase tracking-widest text-xs">
-              <Sparkles size={18} className="text-blue-300" /> Odeplac AI
+          {/* Cabecera Azul */}
+          <div style={{ padding: '16px', background: '#1e3d6b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '14px' }}>
+              <Sparkles size={18} color="#93c5fd" /> ODEPLAC AI
             </div>
-            <button onClick={() => setIsOpen(false)} className="hover:bg-white/10 p-1 rounded">
-              <X size={24} />
-            </button>
+            <X size={20} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
           </div>
 
           {/* Área de Mensajes */}
-          <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto bg-[#f8fafc] space-y-4">
+          <div 
+            ref={scrollRef}
+            style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}
+          >
             {messages.length === 0 && (
-              <div className="text-center text-zinc-400 text-sm mt-10 italic">
-                Hola Omayra, soy OdeplacAI. ¿En qué puedo ayudarte?
+              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '14px', marginTop: '40px' }}>
+                Hola Omayra, ¿qué necesitas consultar?
               </div>
             )}
             {messages.map((m: any) => (
-              <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-4 rounded-2xl text-sm ${
-                  m.role === 'user' 
-                  ? 'bg-[#295693] text-white rounded-tr-none shadow-md' 
-                  : 'bg-white text-zinc-800 border border-zinc-200 rounded-tl-none shadow-sm'
-                }`}>
+              <div key={m.id} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                <div style={{ 
+                  padding: '12px 16px', 
+                  borderRadius: '16px', 
+                  fontSize: '14px',
+                  backgroundColor: m.role === 'user' ? '#295693' : 'white',
+                  color: m.role === 'user' ? 'white' : '#1e293b',
+                  border: m.role === 'user' ? 'none' : '1px solid #e2e8f0',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                  borderTopRightRadius: m.role === 'user' ? '0' : '16px',
+                  borderTopLeftRadius: m.role === 'user' ? '16px' : '0'
+                }}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                 </div>
               </div>
             ))}
             {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white border border-zinc-200 p-3 rounded-2xl shadow-sm">
-                  <Loader2 size={18} className="animate-spin text-[#295693]" />
-                </div>
+              <div style={{ alignSelf: 'flex-start' }}>
+                <Loader2 className="animate-spin" size={20} color="#295693" />
               </div>
             )}
           </div>
 
-          {/* Formulario */}
-          <form onSubmit={handleSubmit} className="p-4 border-t bg-white flex gap-2 pb-6">
+          {/* Input Formulario */}
+          <form 
+            onSubmit={handleSubmit}
+            style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: 'white', display: 'flex', gap: '8px' }}
+          >
             <input 
-              value={input || ''}
+              value={input}
               onChange={handleInputChange}
-              className="flex-1 bg-zinc-100 rounded-xl px-4 py-3 text-sm text-zinc-900 outline-none focus:ring-2 focus:ring-[#295693]" 
-              placeholder="Escribe tu consulta..."
+              placeholder="Escribe aquí..."
               autoFocus
+              style={{ 
+                flex: 1, 
+                padding: '12px', 
+                borderRadius: '12px', 
+                background: '#f1f5f9', 
+                border: 'none', 
+                outline: 'none',
+                color: '#0f172a',
+                fontSize: '14px',
+                fontWeight: 'bold'
+              }}
             />
             <button 
               type="submit" 
-              disabled={isLoading || !input?.trim()}
-              className="bg-[#295693] text-white p-3 rounded-xl disabled:opacity-50 transition-colors"
+              disabled={isLoading || !input.trim()}
+              style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer', opacity: isLoading ? 0.5 : 1 }}
             >
               <Send size={20} />
             </button>
