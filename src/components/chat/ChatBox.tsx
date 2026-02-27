@@ -9,16 +9,12 @@ export default function ChatBox() {
   const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // Usamos el hook y protegemos los valores
   const chatData = useChat() as any;
-  const messages = chatData.messages || [];
-  const input = chatData.input || '';
-  const handleInputChange = chatData.handleInputChange;
-  const handleSubmit = chatData.handleSubmit;
-  const isLoading = chatData.isLoading;
+  const { messages = [], input = '', handleInputChange, handleSubmit, isLoading } = chatData;
 
   useEffect(() => {
     setMounted(true);
+    console.log("🔍 [CHIVATO]: Componente montado. Listo para operar.");
   }, []);
 
   useEffect(() => {
@@ -27,19 +23,38 @@ export default function ChatBox() {
     }
   }, [messages, isOpen]);
 
+  // Chivato para detectar errores en el envío
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log("📩 [CHIVATO]: Intentando enviar mensaje:", input);
+    if (!input.trim()) {
+      console.warn("⚠️ [CHIVATO]: El input está vacío, no se envía nada.");
+      return;
+    }
+    try {
+      handleSubmit(e);
+      console.log("✅ [CHIVATO]: handleSubmit ejecutado correctamente.");
+    } catch (err) {
+      console.error("❌ [CHIVATO]: Error al ejecutar handleSubmit:", err);
+    }
+  };
+
   if (!mounted) return null;
 
   return (
     <>
-      {/* BOTÓN FLOTANTE */}
+      {/* BOTÓN BURBUJA */}
       <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 999999999 }}>
         <button 
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => {
+            console.log("🔘 [CHIVATO]: Click en burbuja. Estado previo:", isOpen);
+            setIsOpen(!isOpen);
+          }}
           style={{
             height: '64px', width: '64px', backgroundColor: '#295693', color: 'white',
             borderRadius: '50%', border: '4px solid white', boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyCenter: 'center'
           }}
         >
           {isOpen ? <X size={32} /> : <MessageCircle size={32} />}
@@ -59,45 +74,57 @@ export default function ChatBox() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
               <Sparkles size={18} color="#93c5fd" /> ODEPLAC AI
             </div>
-            <X size={20} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
+            <X size={24} onClick={() => setIsOpen(false)} style={{ cursor: 'pointer' }} />
           </div>
 
-          {/* Mensajes (Texto Plano para evitar errores) */}
+          {/* Área de Mensajes */}
           <div ref={scrollRef} style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {messages.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '14px', marginTop: '40px' }}>
-                Hola Omayra, ¿qué necesitas consultar?
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '40px' }}>
+                Hola Omayra. ¿En qué puedo ayudarte?
               </div>
             )}
-            {messages.map((m: any) => (
-              <div key={m.id} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-                <div style={{ 
-                  padding: '12px 16px', borderRadius: '16px', fontSize: '14px',
-                  backgroundColor: m.role === 'user' ? '#295693' : 'white',
-                  color: m.role === 'user' ? 'white' : '#1e293b',
-                  border: m.role === 'user' ? 'none' : '1px solid #e2e8f0',
-                  whiteSpace: 'pre-wrap' // Para que respete los saltos de línea
-                }}>
-                  {m.content}
+            {messages.map((m: any, idx: number) => {
+              console.log(`💬 [CHIVATO]: Renderizando mensaje ${idx} del rol ${m.role}`);
+              return (
+                <div key={m.id || idx} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                  <div style={{ 
+                    padding: '12px 16px', borderRadius: '16px', fontSize: '14px',
+                    backgroundColor: m.role === 'user' ? '#295693' : 'white',
+                    color: m.role === 'user' ? 'white' : '#000', // Aseguramos color negro para IA
+                    border: m.role === 'user' ? 'none' : '1px solid #e2e8f0',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {m.content}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {isLoading && (
-              <div style={{ padding: '8px' }}>
+              <div style={{ alignSelf: 'flex-start', padding: '10px' }}>
                 <Loader2 className="animate-spin" size={20} color="#295693" />
+                <span style={{ fontSize: '10px', color: '#295693', marginLeft: '5px' }}>Pensando...</span>
               </div>
             )}
           </div>
 
-          {/* Input */}
-          <form onSubmit={handleSubmit} style={{ padding: '16px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '8px' }}>
+          {/* Formulario */}
+          <form 
+            onSubmit={handleFormSubmit}
+            style={{ padding: '16px', borderTop: '2px solid #f1f5f9', background: 'white', display: 'flex', gap: '10px' }}
+          >
             <input 
               value={input}
-              onChange={handleInputChange}
-              placeholder="Escribe aquí..."
+              onChange={(e) => {
+                console.log("⌨️ [CHIVATO]: Tecleando:", e.target.value);
+                handleInputChange(e);
+              }}
+              placeholder="Escribe tu consulta..."
+              autoFocus
               style={{ 
-                flex: 1, padding: '12px', borderRadius: '12px', background: '#f1f5f9', 
-                border: 'none', outline: 'none', fontSize: '14px'
+                flex: 1, padding: '14px', borderRadius: '12px', background: '#fff', 
+                border: '2px solid #295693', // Borde azul para que se vea bien
+                outline: 'none', fontSize: '16px', color: '#000', fontWeight: 'bold'
               }}
             />
             <button 
@@ -105,7 +132,7 @@ export default function ChatBox() {
               disabled={isLoading || !input.trim()}
               style={{ padding: '12px', background: '#295693', color: 'white', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
             >
-              <Send size={20} />
+              <Send size={22} />
             </button>
           </form>
         </div>
