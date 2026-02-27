@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const rawMessages = body.messages || [];
 
-    // CARGA DE DATOS OPTIMIZADA (Para evitar el error 429 de Groq)
+    // 1. CARGA OPTIMIZADA (Para que no explote el límite de Groq en producción)
     const [
       { data: clientes }, 
       { data: materiales },
@@ -25,41 +25,64 @@ export async function POST(req: Request) {
       { data: obras },
       { data: proveedores }
     ] = await Promise.all([
-      supabase.from('clientes').select('nombre').limit(15),
-      supabase.from('materiales').select('nombre, precio_coste').limit(50), // Reducido para ahorrar tokens
-      supabase.from('obra_seguimiento').select('mensaje').order('created_at', { ascending: false }).limit(5),
-      supabase.from('obras').select('titulo, estado').limit(15),
-      supabase.from('proveedores').select('nombre').limit(10)
+      // Filtramos clientes para que solo cuente los que tienen nombre (tus 8 clientes reales)
+      supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
+      // Buscamos materiales, asegurándonos de traer las placas de yeso
+      supabase.from('materiales').select('nombre, precio_coste, categoria, unidad').limit(150),
+      supabase.from('obra_seguimiento').select('mensaje, created_at').order('created_at', { ascending: false }).limit(10),
+      supabase.from('obras').select('titulo, estado'),
+      supabase.from('proveedores').select('nombre')
     ]);
 
-    const systemPrompt = `Eres OdeplacAI, consultora experta de Odeplac Pro. 
-    ESTÁS HABLANDO CON OMAYRA. 
-    DATOS REALES DE HOY:
-    - Obras activas: ${obras?.map(o => o.titulo).join(", ")}
-    - Clientes: ${clientes?.map(c => c.nombre).join(", ")}
-    - Proveedores: ${proveedores?.map(p => p.nombre).join(", ")}
-    - Lista Materiales (extracto): ${materiales?.map(m => m.nombre).join(", ")}
-    - Últimos hitos: ${seguimiento?.map(s => s.mensaje).join(" | ")}
+    // 2. CONSTRUCCIÓN DEL SYSTEM PROMPT (Formato texto plano para ahorrar tokens)
+    const systemPrompt = `Eres OdeplacAI, la Consultora Estratégica de Odeplac Pro. Tu interlocutora es OMAYRA.
+    
+    INFORMACIÓN REAL DE LA BASE DE DATOS:
+    
+    CLIENTES (${clientes?.length || 0} registrados):
+    ${clientes?.map(c => c.nombre).join(", ")}
 
-    Responde siempre de forma profesional, amable y muy concisa. No uses markdown complejo.`;
+    OBRAS ACTIVAS:
+    ${obras?.map(o => `${o.titulo} (Estado: ${o.estado})`).join(" | ")}
 
+    MATERIALES Y STOCK:
+    ${materiales?.map(m => `- ${m.nombre}: ${m.precio_coste}€ (${m.categoria || 'Sin categoría'})`).join("\n")}
+
+    PROVEEDORES:
+    ${proveedores?.map(p => p.nombre).join(", ")}
+
+    ÚLTIMO SEGUIMIENTO:
+    ${seguimiento?.map(s => s.mensaje).join(" || ")}
+
+    INSTRUCCIONES IMPORTANTES PARA ODEPLACAI:
+    - OMAYRA es tu jefa. Sé profesional y directa.
+    - Si te pregunta por "cuántos clientes", di exactamente ${clientes?.length || 0}.
+    - Si te pregunta por "placas de yeso", busca en la lista de MATERIALES arriba.
+    - Si no encuentras un dato específico, di: "Omayra, no veo ese registro en las tablas, ¿lo hemos dado de alta?".
+    - Responde de forma concisa para evitar errores de conexión.`;
+
+    // 3. LLAMADA A GROQ LIMPIA
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
-        ...rawMessages
+        ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
       ],
-      temperature: 0.2,
-      max_tokens: 400
+      temperature: 0.1, // Precisión total
+      max_tokens: 500   // Evita que la respuesta sea demasiado larga y corte la conexión
     });
 
     return NextResponse.json({ 
+      id: Date.now().toString(), 
       role: "assistant", 
       content: response.choices[0]?.message?.content 
     });
 
   } catch (error: any) {
     console.error("❌ ERROR CRÍTICO ODEPLACAI:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error de conexión con la base de datos de Odeplac." }, 
+      { status: 500 }
+    );
   }
 }
