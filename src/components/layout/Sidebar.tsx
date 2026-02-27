@@ -9,7 +9,9 @@ import {
   Box, 
   Truck, 
   Settings,
-  CircleDot
+  FileText,
+  CircleDot,
+  X
 } from 'lucide-react';
 
 const menuItems = [
@@ -18,14 +20,28 @@ const menuItems = [
   { name: 'Clientes', icon: Users, href: '/dashboard/clientes' },
   { name: 'Materiales', icon: Box, href: '/dashboard/materiales' },
   { name: 'Proveedores', icon: Truck, href: '/dashboard/proveedores' },
+  { name: 'Presupuestos', icon: FileText, href: '/dashboard/presupuestos' },
   { name: 'Configuración', icon: Settings, href: '/dashboard/configuracion' },
 ];
 
-export default function Sidebar() {
+// Añadimos la interfaz para recibir onClose del layout móvil
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-[#1e3d6b] border-r border-white/10 flex flex-col min-h-screen shrink-0">
+    <aside className="w-64 bg-[#1e3d6b] border-r border-white/10 flex flex-col h-screen shrink-0 relative">
+      {/* Botón de cerrar interno para móvil (opcional, por si el usuario busca una X) */}
+      <button 
+        onClick={onClose}
+        className="lg:hidden absolute top-4 right-4 text-white/50 hover:text-white"
+      >
+        <X size={20} />
+      </button>
+
       <div className="p-6 flex items-center gap-3">
         <div className="h-8 w-8 bg-white rounded-lg flex items-center justify-center shadow-lg">
           <CircleDot className="text-[#295693]" size={20} />
@@ -40,6 +56,10 @@ export default function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              // Al hacer clic, ejecutamos onClose para que en móvil el menú desaparezca
+              onClick={() => {
+                if (onClose) onClose();
+              }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 isActive 
                   ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/20' 
@@ -52,6 +72,14 @@ export default function Sidebar() {
           );
         })}
       </nav>
+      
+      {/* Pie del sidebar */}
+      <div className="p-4 border-t border-white/5">
+        <div className="bg-white/5 rounded-xl p-3">
+          <p className="text-[10px] text-blue-200/50 uppercase font-bold mb-1">Usuario</p>
+          <p className="text-xs text-white truncate font-medium">Administrador Odeplac</p>
+        </div>
+      </div>
     </aside>
   );
 }
