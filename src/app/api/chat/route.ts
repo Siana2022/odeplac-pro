@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 
-// Le damos 60 segundos de margen a Vercel
+// Esto es vital para evitar el error 504
 export const maxDuration = 60; 
 
 export async function POST(req: Request) {
@@ -13,58 +13,58 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const rawMessages = body.messages || [];
+    const userPrompt = rawMessages[rawMessages.length - 1].content;
 
-    // 1. CARGA DE DATOS (Mantenemos la precisión de tus 8 clientes)
-    const [
-      { data: clientes }, 
-      { data: materiales },
-      { data: obras }
-    ] = await Promise.all([
+    // 1. CARGA RÁPIDA DE DATOS
+    const [ { data: clientes }, { data: obras } ] = await Promise.all([
       supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
-      supabase.from('materiales').select('nombre').ilike('nombre', '%placa%').limit(20),
-      supabase.from('obras').select('titulo, estado')
+      supabase.from('obras').select('titulo')
     ]);
 
-    // 2. SYSTEM PROMPT (Ultra-Directo para TinyLlama)
-    const systemPrompt = `Eres OdeplacAI. Interlocutora: OMAYRA.
-    - CLIENTES (${clientes?.length || 0}): ${clientes?.map(c => c.nombre).join(", ")}
-    - OBRAS (${obras?.length || 0}): ${obras?.map(o => o.titulo).join(", ")}
-    - PLACAS: ${materiales?.map(m => m.nombre).join(", ")}
-    INSTRUCCIÓN: Responde siempre en español, muy breve y directo.`;
+    // 2. PROMPT DIRECTO (Sin vueltas para que la IA responda en milisegundos)
+    const context = `Clientes(${clientes?.length || 0}): ${clientes?.map(c => c.nombre).join(", ")}. Obras: ${obras?.map(o => o.titulo).join(", ")}.`;
+    
+    const finalPrompt = `Eres OdeplacAI. Responde a OMAYRA brevemente y en español.
+Datos actuales: ${context}
+Pregunta: ${userPrompt}
+Respuesta:`;
 
-    // 3. LLAMADA A TU OLLAMA (Cambiado a TinyLlama para velocidad)
-    const response = await fetch("http://5.189.161.169:11434/api/chat", {
+    // 3. LLAMADA CON TIMEOUT CORTO PARA EVITAR BLOQUEOS
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
+
+    const response = await fetch("http://5.189.161.169:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "tinyllama", 
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...rawMessages.map((m: any) => ({ role: m.role, content: m.content }))
-        ],
-        stream: false 
-      })
+        model: "smollm2:1.7b",
+        prompt: finalPrompt,
+        stream: false,
+        options: {
+          num_predict: 80,
+          temperature: 0.3
+        }
+      }),
+      signal: controller.signal
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error de Ollama:", errorText);
-      throw new Error("Servidor lento");
-    }
+    clearTimeout(timeoutId);
+
+    if (!response.ok) throw new Error("Servidor ocupado");
 
     const data = await response.json();
 
     return NextResponse.json({ 
       id: Date.now().toString(), 
       role: "assistant", 
-      content: data.message.content 
+      content: data.response.replace(/<[^>]*>/g, '').trim() 
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR ODEPLACAI:", error.message);
+    console.error("❌ ERROR:", error.message);
     return NextResponse.json(
-      { error: "OdeplacAI está pensando... Reintenta en 5 segundos." }, 
-      { status: 500 }
+      { error: "Omayra, el servidor está tardando. Prueba a preguntar de nuevo en 3 segundos." }, 
+      { status: 200 } // Devolvemos 200 para que el chat no explote con el error 'A'
     );
   }
 }
