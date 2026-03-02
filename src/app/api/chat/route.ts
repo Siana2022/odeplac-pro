@@ -12,47 +12,42 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const rawMessages = body.messages || [];
-    const userPrompt = rawMessages[rawMessages.length - 1].content;
+    const userPrompt = rawMessages[rawMessages.length - 1].content.toLowerCase();
 
-    // 1. CARGA MASIVA DE TODA LA EMPRESA (Optimizado para no saturar al pequeñín SmolLM2)
+    // 1. CARGA DE TODAS LAS TABLAS
     const [
       { data: clientes }, 
       { data: obras },
       { data: proveedores },
       { data: materiales }
     ] = await Promise.all([
-      supabase.from('clientes').select('nombre, email, telefono').not('nombre', 'is', null).neq('nombre', ''),
+      supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
       supabase.from('obras').select('titulo, estado'),
       supabase.from('proveedores').select('nombre, categoria'),
-      supabase.from('materiales').select('nombre, precio_coste, unidad').limit(50)
+      supabase.from('materiales').select('nombre, precio_coste').limit(20)
     ]);
 
-    // 2. CONSTRUCCIÓN DE LA "MEMORIA" DE ODEPLAC
-    const contextEmpresa = `
-DATOS DE ODEPLAC PRO PARA OMAYRA:
-- CLIENTES (${clientes?.length || 0}): ${clientes?.map(c => `${c.nombre} (${c.email || 'sin email'})`).join(", ")}
-- OBRAS ACTIVAS (${obras?.length || 0}): ${obras?.map(o => `${o.titulo} [Estado: ${o.estado}]`).join(" | ")}
-- PROVEEDORES (${proveedores?.length || 0}): ${proveedores?.map(p => `${p.nombre} (${p.categoria || 'general'})`).join(", ")}
-- INVENTARIO MATERIALES: ${materiales?.map(m => `${m.nombre} (${m.precio_coste}€/${m.unidad})`).join(", ")}
-`;
+    // 2. FORMATEO DE LISTAS (Para que la IA no se pierda)
+    const listaClientes = clientes?.map(c => c.nombre).join(", ") || "Ninguno";
+    const listaObras = obras?.map(o => `${o.titulo} (${o.estado || 'Sin estado'})`).join(" | ") || "Ninguna";
+    const listaProv = proveedores?.map(p => p.nombre).join(", ") || "Ninguno";
+    const listaMat = materiales?.map(m => m.nombre).join(", ") || "Sin stock";
 
-    // 3. PROMPT ESTRUCTURADO DE AUTORIDAD
-    const finalPrompt = `<|system|>
-Eres OdeplacAI, la consultora estratégica de ODEPLAC. Tu jefa es OMAYRA.
-Usa estos datos reales para responder:
-${contextEmpresa}
+    // 3. PROMPT DE "RESPUESTA FORZADA"
+    // Aquí le damos los datos masticados para que no pueda decir que "no los ve"
+    const finalPrompt = `Eres OdeplacAI. Tu jefa es OMAYRA. 
+    
+DATOS DE LA EMPRESA QUE DEBES USAR:
+- Clientes (${clientes?.length || 0}): ${listaClientes}
+- Obras (${obras?.length || 0}): ${listaObras}
+- Proveedores (${proveedores?.length || 0}): ${listaProv}
+- Materiales: ${listaMat}
 
-REGLAS:
-1. Responde siempre en ESPAÑOL y sé muy breve (máximo 3 frases).
-2. Si Omayra pregunta por clientes, da el número exacto (${clientes?.length}).
-3. Si pregunta por obras, menciona su estado actual.
-4. Si no sabes un dato, di: "Omayra, no veo ese dato en la base de datos".
-5. No inventes proveedores ni materiales.
-<|user|>
-${userPrompt}
-<|assistant|>`;
+INSTRUCCIÓN: Omayra te pregunta: "${userPrompt}". 
+Responde de forma muy directa en español. Si pregunta cuántos, dile el número exacto.
+Respuesta:`;
 
-    // 4. LLAMADA A TU SERVIDOR (SmolLM2 es el que mejor procesa estas listas)
+    // 4. LLAMADA A OLLAMA
     const response = await fetch("http://5.189.161.169:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -62,14 +57,12 @@ ${userPrompt}
         stream: false,
         options: {
           temperature: 0.1,
-          num_predict: 150,
-          stop: ["<|user|>", "<|assistant|>", "</s>"]
+          num_predict: 100
         }
       })
     });
 
-    if (!response.ok) throw new Error("Servidor ocupado");
-
+    if (!response.ok) throw new Error("Error servidor");
     const data = await response.json();
 
     return NextResponse.json({ 
@@ -79,7 +72,6 @@ ${userPrompt}
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR:", error.message);
-    return NextResponse.json({ error: "Servidor procesando datos... Reintenta." }, { status: 200 });
+    return NextResponse.json({ error: "Reintentando conexión..." }, { status: 200 });
   }
 }
