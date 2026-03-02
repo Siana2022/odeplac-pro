@@ -14,29 +14,25 @@ export async function POST(req: Request) {
     const rawMessages = body.messages || [];
     const userPrompt = rawMessages[rawMessages.length - 1].content.toLowerCase();
 
-    // 1. CARGA DE DATOS
+    // 1. CARGA DE DATOS (Solo lo necesario para no saturar)
     const [ { data: clientes }, { data: obras } ] = await Promise.all([
       supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
       supabase.from('obras').select('titulo, estado')
     ]);
 
-    // 2. CREACIÓN DE BLOQUES AISLADOS
-    // Usamos separadores visuales que la IA entiende como "esto es una cosa y esto es otra"
-    const bloqueClientes = `### LISTA DE CLIENTES (Total: ${clientes?.length}):\n${clientes?.map(c => `- ${c.nombre}`).join("\n")}`;
-    const bloqueObras = `### LISTA DE OBRAS (Total: ${obras?.length}):\n${obras?.map(o => `- ${o.titulo} (Estado: ${o.estado})`).join("\n")}`;
+    // 2. CONSTRUCCIÓN DE RESPUESTA DIRECTA (Pre-procesada)
+    // Le damos la respuesta casi escrita para que no tenga que "razonar"
+    const infoObras = obras?.map(o => `${o.titulo} (${o.estado})`).join(", ") || "No hay obras";
+    const infoClientes = clientes?.map(c => c.nombre).join(", ") || "No hay clientes";
 
-    // 3. PROMPT DE "EXTRACCIÓN PURA"
-    const finalPrompt = `Eres OdeplacAI. Responde a OMAYRA.
-    
-USA EXCLUSIVAMENTE ESTOS BLOQUES:
+    // 3. PROMPT "SIN CEREBRO" (Solo instrucciones de flujo)
+    const finalPrompt = `Instrucción: Eres el secretario de OMAYRA. 
+Datos:
+- Tienes ${obras?.length || 0} obras: ${infoObras}
+- Tienes ${clientes?.length || 0} clientes: ${infoClientes}
 
-${bloqueClientes}
-
-${bloqueObras}
-
-INSTRUCCIÓN: Si Omayra pregunta por OBRAS, mira SOLO el bloque de OBRAS. Si pregunta por CLIENTES, mira SOLO el bloque de CLIENTES. No mezcles.
 Pregunta: ${userPrompt}
-Respuesta:`;
+Respuesta corta en español:`;
 
     // 4. LLAMADA A OLLAMA
     const response = await fetch("http://5.189.161.169:11434/api/generate", {
@@ -47,8 +43,9 @@ Respuesta:`;
         prompt: finalPrompt,
         stream: false,
         options: {
-          temperature: 0.1, // Al mínimo para que no invente nada
-          num_predict: 120
+          temperature: 0, // Precisión absoluta, cero creatividad
+          num_predict: 80,
+          stop: ["Instrucción:", "Pregunta:"]
         }
       })
     });
