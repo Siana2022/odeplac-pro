@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 
-// Tiempo de espera máximo para Vercel
+// Tiempo máximo de ejecución para Vercel (Paid tier)
 export const maxDuration = 60; 
 
 export async function POST(req: Request) {
@@ -13,6 +13,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const rawMessages = body.messages || [];
+    // Convertimos a minúsculas para que el filtro sea más preciso
     const userPrompt = rawMessages[rawMessages.length - 1].content.toLowerCase();
 
     // 1. CARGA DE DATOS DESDE SUPABASE
@@ -28,51 +29,53 @@ export async function POST(req: Request) {
       supabase.from('materiales').select('nombre, precio_coste').limit(30)
     ]);
 
-    // 2. FILTRO SELECTIVO (El "muro" de datos para evitar mezclas)
+    // 2. FILTRO SELECTIVO (El "muro" de datos para evitar que la IA se líe)
     let contextoEspecifico = "";
     
     if (userPrompt.includes("obra") || userPrompt.includes("proyecto") || userPrompt.includes("estado")) {
-      // Priorizamos Título y ESTADO
-      contextoEspecifico = `DATOS DE OBRAS Y SUS ESTADOS ACTUALES: ${obras?.map(o => `Obra: ${o.titulo} -> Estado: ${o.estado || 'Pendiente'}`).join(" | ")}`;
-    } 
-    else if (userPrompt.includes("cliente")) {
-      contextoEspecifico = `LISTA DE CLIENTES REGISTRADOS: ${clientes?.map(c => c.nombre).join(", ")}`;
+      contextoEspecifico = `DATOS DE OBRAS: ${obras?.map(o => `${o.titulo} (Estado: ${o.estado || 'Pendiente'})`).join(" | ")}`;
     } 
     else if (userPrompt.includes("proveedor")) {
-      contextoEspecifico = `LISTA DE PROVEEDORES Y CATEGORÍAS: ${proveedores?.map(p => `${p.nombre} (${p.categoria || 'General'})`).join(", ")}`;
+      contextoEspecifico = `LISTA DE PROVEEDORES: ${proveedores?.map(p => `${p.nombre} - ${p.categoria || 'General'}`).join(", ")}`;
+    } 
+    else if (userPrompt.includes("cliente")) {
+      contextoEspecifico = `LISTA DE CLIENTES: ${clientes?.map(c => c.nombre).join(", ")}`;
     } 
     else if (userPrompt.includes("material") || userPrompt.includes("stock") || userPrompt.includes("placa") || userPrompt.includes("precio")) {
-      contextoEspecifico = `INVENTARIO DE MATERIALES Y PRECIOS: ${materiales?.map(m => `${m.nombre} (${m.precio_coste}€)`).join(", ")}`;
+      contextoEspecifico = `INVENTARIO: ${materiales?.map(m => `${m.nombre} (${m.precio_coste}€)`).join(", ")}`;
     } 
     else {
-      // Resumen general si no hay palabra clave clara
-      contextoEspecifico = `RESUMEN GENERAL PARA OMAYRA: Tienes ${clientes?.length} clientes, ${obras?.length} obras activas, ${proveedores?.length} proveedores y ${materiales?.length} tipos de materiales.`;
+      contextoEspecifico = `Resumen: Tienes ${clientes?.length} clientes, ${obras?.length} obras y ${proveedores?.length} proveedores.`;
     }
 
-    // 3. PROMPT ESTRUCTURADO PARA SMOL-LM2
-    const finalPrompt = `Eres el asistente de OMAYRA en ODEPLAC. 
-USA EXCLUSIVAMENTE ESTA INFORMACIÓN:
+    // 3. PROMPT ESTRUCTURADO PARA LLAMA 3.2 1B
+    const finalPrompt = `Eres OdeplacAI, el asistente inteligente de OMAYRA en la empresa ODEPLAC. 
+Responde siempre en ESPAÑOL de forma profesional y muy breve.
+
+DATOS REALES DEL SISTEMA:
 ${contextoEspecifico}
 
-Pregunta de Omayra: ${userPrompt}
-Respuesta corta y directa en español:`;
+INSTRUCCIÓN: Responde a la pregunta usando SOLO los datos anteriores. No menciones clientes si preguntan por proveedores.
+
+PREGUNTA DE OMAYRA: ${userPrompt}
+RESPUESTA:`;
 
     // 4. LLAMADA AL SERVIDOR OLLAMA (CONTABO)
     const response = await fetch("http://5.189.161.169:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "smollm2:1.7b",
+        model: "llama3.2:1b", // El nuevo modelo que instalaste
         prompt: finalPrompt,
         stream: false,
         options: {
-          temperature: 0, // Cero creatividad para evitar inventos
-          num_predict: 100
+          temperature: 0.1, // Baja creatividad = alta precisión
+          num_predict: 120
         }
       })
     });
 
-    if (!response.ok) throw new Error("Error en la respuesta del servidor Ollama");
+    if (!response.ok) throw new Error("Error en servidor Contabo");
 
     const data = await response.json();
 
@@ -83,9 +86,9 @@ Respuesta corta y directa en español:`;
     });
 
   } catch (error: any) {
-    console.error("❌ ERROR API CHAT:", error.message);
+    console.error("❌ ERROR API:", error.message);
     return NextResponse.json(
-      { error: "Omayra, estoy procesando los datos. Por favor, reintenta en un momento." }, 
+      { error: "Omayra, estoy actualizando los datos. Por favor, pregunta de nuevo en un segundo." }, 
       { status: 200 }
     );
   }
