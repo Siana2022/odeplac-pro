@@ -14,27 +14,30 @@ export async function POST(req: Request) {
     const rawMessages = body.messages || [];
     const userPrompt = rawMessages[rawMessages.length - 1].content.toLowerCase();
 
-    // 1. CARGA DE DATOS (Solo lo necesario para no saturar)
-    const [ { data: clientes }, { data: obras } ] = await Promise.all([
+    // 1. CARGA COMPLETA DE DATOS
+    const [ { data: clientes }, { data: obras }, { data: proveedores } ] = await Promise.all([
       supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
-      supabase.from('obras').select('titulo, estado')
+      supabase.from('obras').select('titulo, estado'),
+      supabase.from('proveedores').select('nombre, categoria')
     ]);
 
-    // 2. CONSTRUCCIÓN DE RESPUESTA DIRECTA (Pre-procesada)
-    // Le damos la respuesta casi escrita para que no tenga que "razonar"
-    const infoObras = obras?.map(o => `${o.titulo} (${o.estado})`).join(", ") || "No hay obras";
-    const infoClientes = clientes?.map(c => c.nombre).join(", ") || "No hay clientes";
+    // 2. PRE-PROCESADO ESTRICTO
+    const txtObras = obras?.map(o => `${o.titulo} (${o.estado})`).join(", ") || "No hay obras";
+    const txtClientes = clientes?.map(c => c.nombre).join(", ") || "No hay clientes";
+    const txtProv = proveedores?.map(p => `${p.nombre} (${p.categoria || 'General'})`).join(", ") || "No hay proveedores registrados";
 
-    // 3. PROMPT "SIN CEREBRO" (Solo instrucciones de flujo)
-    const finalPrompt = `Instrucción: Eres el secretario de OMAYRA. 
-Datos:
-- Tienes ${obras?.length || 0} obras: ${infoObras}
-- Tienes ${clientes?.length || 0} clientes: ${infoClientes}
+    // 3. EL PROMPT DE "CAJONES ESTANCOS"
+    // Le decimos que si pregunta por X, use SOLO el dato X.
+    const finalPrompt = `Eres el asistente de OMAYRA. Usa SOLO estos datos:
 
+LISTA_OBRAS: ${txtObras}
+LISTA_CLIENTES: ${txtClientes}
+LISTA_PROVEEDORES: ${txtProv}
+
+Regla: Si pregunta por proveedores, responde SOLO con LISTA_PROVEEDORES. No menciones clientes.
 Pregunta: ${userPrompt}
-Respuesta corta en español:`;
+Respuesta corta:`;
 
-    // 4. LLAMADA A OLLAMA
     const response = await fetch("http://5.189.161.169:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,14 +46,14 @@ Respuesta corta en español:`;
         prompt: finalPrompt,
         stream: false,
         options: {
-          temperature: 0, // Precisión absoluta, cero creatividad
-          num_predict: 80,
-          stop: ["Instrucción:", "Pregunta:"]
+          temperature: 0, 
+          num_predict: 100,
+          stop: ["LISTA_", "Regla:"]
         }
       })
     });
 
-    if (!response.ok) throw new Error("Error servidor");
+    if (!response.ok) throw new Error("Error");
     const data = await response.json();
 
     return NextResponse.json({ 
@@ -60,6 +63,6 @@ Respuesta corta en español:`;
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: "Reintentando..." }, { status: 200 });
+    return NextResponse.json({ error: "Procesando..." }, { status: 200 });
   }
 }
