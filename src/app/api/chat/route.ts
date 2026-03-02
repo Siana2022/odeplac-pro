@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 
-// Esto es vital para evitar el error 504
 export const maxDuration = 60; 
 
 export async function POST(req: Request) {
@@ -15,24 +14,45 @@ export async function POST(req: Request) {
     const rawMessages = body.messages || [];
     const userPrompt = rawMessages[rawMessages.length - 1].content;
 
-    // 1. CARGA RÁPIDA DE DATOS
-    const [ { data: clientes }, { data: obras } ] = await Promise.all([
-      supabase.from('clientes').select('nombre').not('nombre', 'is', null).neq('nombre', ''),
-      supabase.from('obras').select('titulo')
+    // 1. CARGA MASIVA DE TODA LA EMPRESA (Optimizado para no saturar al pequeñín SmolLM2)
+    const [
+      { data: clientes }, 
+      { data: obras },
+      { data: proveedores },
+      { data: materiales }
+    ] = await Promise.all([
+      supabase.from('clientes').select('nombre, email, telefono').not('nombre', 'is', null).neq('nombre', ''),
+      supabase.from('obras').select('titulo, estado'),
+      supabase.from('proveedores').select('nombre, categoria'),
+      supabase.from('materiales').select('nombre, precio_coste, unidad').limit(50)
     ]);
 
-    // 2. PROMPT DIRECTO (Sin vueltas para que la IA responda en milisegundos)
-    const context = `Clientes(${clientes?.length || 0}): ${clientes?.map(c => c.nombre).join(", ")}. Obras: ${obras?.map(o => o.titulo).join(", ")}.`;
-    
-    const finalPrompt = `Eres OdeplacAI. Responde a OMAYRA brevemente y en español.
-Datos actuales: ${context}
-Pregunta: ${userPrompt}
-Respuesta:`;
+    // 2. CONSTRUCCIÓN DE LA "MEMORIA" DE ODEPLAC
+    const contextEmpresa = `
+DATOS DE ODEPLAC PRO PARA OMAYRA:
+- CLIENTES (${clientes?.length || 0}): ${clientes?.map(c => `${c.nombre} (${c.email || 'sin email'})`).join(", ")}
+- OBRAS ACTIVAS (${obras?.length || 0}): ${obras?.map(o => `${o.titulo} [Estado: ${o.estado}]`).join(" | ")}
+- PROVEEDORES (${proveedores?.length || 0}): ${proveedores?.map(p => `${p.nombre} (${p.categoria || 'general'})`).join(", ")}
+- INVENTARIO MATERIALES: ${materiales?.map(m => `${m.nombre} (${m.precio_coste}€/${m.unidad})`).join(", ")}
+`;
 
-    // 3. LLAMADA CON TIMEOUT CORTO PARA EVITAR BLOQUEOS
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 55000);
+    // 3. PROMPT ESTRUCTURADO DE AUTORIDAD
+    const finalPrompt = `<|system|>
+Eres OdeplacAI, la consultora estratégica de ODEPLAC. Tu jefa es OMAYRA.
+Usa estos datos reales para responder:
+${contextEmpresa}
 
+REGLAS:
+1. Responde siempre en ESPAÑOL y sé muy breve (máximo 3 frases).
+2. Si Omayra pregunta por clientes, da el número exacto (${clientes?.length}).
+3. Si pregunta por obras, menciona su estado actual.
+4. Si no sabes un dato, di: "Omayra, no veo ese dato en la base de datos".
+5. No inventes proveedores ni materiales.
+<|user|>
+${userPrompt}
+<|assistant|>`;
+
+    // 4. LLAMADA A TU SERVIDOR (SmolLM2 es el que mejor procesa estas listas)
     const response = await fetch("http://5.189.161.169:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41,14 +61,12 @@ Respuesta:`;
         prompt: finalPrompt,
         stream: false,
         options: {
-          num_predict: 80,
-          temperature: 0.3
+          temperature: 0.1,
+          num_predict: 150,
+          stop: ["<|user|>", "<|assistant|>", "</s>"]
         }
-      }),
-      signal: controller.signal
+      })
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) throw new Error("Servidor ocupado");
 
@@ -57,14 +75,11 @@ Respuesta:`;
     return NextResponse.json({ 
       id: Date.now().toString(), 
       role: "assistant", 
-      content: data.response.replace(/<[^>]*>/g, '').trim() 
+      content: data.response.trim() 
     });
 
   } catch (error: any) {
     console.error("❌ ERROR:", error.message);
-    return NextResponse.json(
-      { error: "Omayra, el servidor está tardando. Prueba a preguntar de nuevo en 3 segundos." }, 
-      { status: 200 } // Devolvemos 200 para que el chat no explote con el error 'A'
-    );
+    return NextResponse.json({ error: "Servidor procesando datos... Reintenta." }, { status: 200 });
   }
 }
