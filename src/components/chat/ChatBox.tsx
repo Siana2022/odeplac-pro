@@ -1,7 +1,15 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Sparkles, Send, Loader2 } from "lucide-react";
+import { MessageCircle, X, Sparkles, Send, Loader2, BarChart3, Package, Users, Construction } from "lucide-react";
+
+// Definimos las sugerencias rápidas
+const SUGGESTIONS = [
+  { label: "Seguimiento Obras", query: "¿Qué seguimiento tienen los proyectos?", icon: <BarChart3 size={14} /> },
+  { label: "Stock Materiales", query: "¿Cuántos materiales tengo?", icon: <Package size={14} /> },
+  { label: "Mis Clientes", query: "¿Quiénes son mis clientes?", icon: <Users size={14} /> },
+  { label: "Obra Gran Vía", query: "¿Cómo va la obra de Gran Vía?", icon: <Construction size={14} /> },
+];
 
 export default function ChatBox() {
   const [isOpen, setIsOpen] = useState(false);
@@ -13,21 +21,20 @@ export default function ChatBox() {
 
   useEffect(() => {
     setMounted(true);
-    console.log("🚀 [ODEPLAC-AI]: Chat listo y manual.");
+    console.log("🚀 [ODEPLAC-AI]: Chat listo con sugerencias.");
   }, []);
 
   useEffect(() => {
     if (scrollRef.current && isOpen) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, isLoading]);
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = textInput.trim();
+  // Función genérica para enviar mensajes (tanto manuales como de botones)
+  const sendMessage = async (content: string) => {
+    const val = content.trim();
     if (!val || isLoading) return;
 
-    // Creamos el mensaje para nuestra pantalla (con ID para React)
     const userMsg = { id: Date.now().toString(), role: 'user', content: val };
     const newMessages = [...messages, userMsg];
     
@@ -36,45 +43,27 @@ export default function ChatBox() {
     setIsLoading(true);
 
     try {
-      // LIMPIEZA CRÍTICA: Groq SOLO acepta 'role' y 'content'
-      const cleanMessages = newMessages.map(({ role, content }) => ({ 
-        role, 
-        content 
-      }));
-
-      console.log("📩 [CHIVATO]: Enviando a API datos limpios...");
-
+      const cleanMessages = newMessages.map(({ role, content }) => ({ role, content }));
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: cleanMessages }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Error en la respuesta");
-      }
+      if (!response.ok) throw new Error("Error en la respuesta");
 
       const data = await response.json();
-      console.log("✅ [CHIVATO]: Respuesta de IA recibida.");
-
-      // Añadimos la respuesta a la pantalla
-      setMessages((prev) => [...prev, { 
-        id: Date.now().toString(), 
-        role: 'assistant', 
-        content: data.content 
-      }]);
-
+      setMessages((prev) => [...prev, { id: Date.now().toString(), role: 'assistant', content: data.content }]);
     } catch (err: any) {
-      console.error("❌ [CHIVATO] Error:", err.message);
-      setMessages((prev) => [...prev, { 
-        id: 'err', 
-        role: 'assistant', 
-        content: `Error: ${err.message}. Revisa Groq o Vercel.` 
-      }]);
+      setMessages((prev) => [...prev, { id: 'err', role: 'assistant', content: `Error: ${err.message}` }]);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    sendMessage(textInput);
   };
 
   if (!mounted) return null;
@@ -114,10 +103,27 @@ export default function ChatBox() {
           {/* Área de Mensajes */}
           <div ref={scrollRef} style={{ flex: 1, padding: '16px', overflowY: 'auto', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {messages.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '40px' }}>
-                Hola Omayra. ¿Qué necesitas consultar hoy?
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '15px', marginTop: '20px' }}>
+                <p>Hola Omayra. ¿Qué necesitas consultar hoy?</p>
+                {/* Sugerencias iniciales cuando el chat está vacío */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px' }}>
+                  {SUGGESTIONS.map((s, i) => (
+                    <button 
+                      key={i} 
+                      onClick={() => sendMessage(s.query)}
+                      style={{
+                        padding: '10px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                        background: 'white', cursor: 'pointer', fontSize: '13px', color: '#1e3d6b',
+                        display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center'
+                      }}
+                    >
+                      {s.icon} {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
+            
             {messages.map((m: any) => (
               <div key={m.id} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
                 <div style={{ 
@@ -131,12 +137,32 @@ export default function ChatBox() {
                 </div>
               </div>
             ))}
+            
             {isLoading && (
               <div style={{ padding: '10px' }}>
                 <Loader2 className="animate-spin" size={20} color="#295693" />
               </div>
             )}
           </div>
+
+          {/* Sugerencias rápidas flotantes sobre el input (opcional) */}
+          {messages.length > 0 && !isLoading && (
+             <div style={{ padding: '8px 16px', display: 'flex', gap: '8px', overflowX: 'auto', background: '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+                {SUGGESTIONS.map((s, i) => (
+                  <button 
+                    key={i} 
+                    onClick={() => sendMessage(s.query)}
+                    style={{
+                      padding: '6px 12px', borderRadius: '20px', border: '1px solid #295693',
+                      background: 'rgba(41, 86, 147, 0.05)', cursor: 'pointer', fontSize: '11px', 
+                      color: '#295693', whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+             </div>
+          )}
 
           {/* Formulario */}
           <form onSubmit={handleFormSubmit} style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: 'white', display: 'flex', gap: '10px' }}>
