@@ -11,7 +11,9 @@ import {
   Settings,
   FileText,
   CircleDot,
-  X
+  X,
+  Brain, // Importamos el icono de Cerebro
+  BookOpen
 } from 'lucide-react';
 
 const menuItems = [
@@ -21,6 +23,8 @@ const menuItems = [
   { name: 'Materiales', icon: Box, href: '/dashboard/materiales' },
   { name: 'Proveedores', icon: Truck, href: '/dashboard/proveedores' },
   { name: 'Presupuestos', icon: FileText, href: '/dashboard/presupuestos' },
+  // NUEVO: Manual de Inteligencia para las recetas y configuración IA
+  { name: 'Inteligencia', icon: Brain, href: '/dashboard/configurador' },
   { name: 'Configuración', icon: Settings, href: '/dashboard/configuracion' },
 ];
 
