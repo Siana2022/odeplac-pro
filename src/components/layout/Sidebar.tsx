@@ -13,7 +13,8 @@ import {
   CircleDot,
   X,
   Brain, // Importamos el icono de Cerebro
-  BookOpen
+  BookOpen,
+  Ruler
 } from 'lucide-react';
 
 const menuItems = [
@@ -26,6 +27,7 @@ const menuItems = [
   // NUEVO: Manual de Inteligencia para las recetas y configuración IA
   { name: 'Inteligencia', icon: Brain, href: '/dashboard/configurador' },
   { name: 'Configuración', icon: Settings, href: '/dashboard/configuracion' },
+  { name: 'Escáner Planos', icon: Ruler, href: '/dashboard/escanner-planos' }, // USA EL ICONO RULER
 ];
 
 // Añadimos la interfaz para recibir onClose del layout móvil

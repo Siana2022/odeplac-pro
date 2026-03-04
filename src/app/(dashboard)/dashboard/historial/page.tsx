@@ -5,10 +5,12 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   Calendar, User, Building2, ChevronRight, ArrowLeft, 
   FileText, Search, X, Edit2, CheckCircle2, Rocket, 
-  Save, Loader2, Trash2, RotateCcw 
+  Save, Loader2, Trash2, RotateCcw, Download 
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function HistorialPresupuestos() {
   const supabase = createClient();
@@ -31,6 +33,91 @@ export default function HistorialPresupuestos() {
 
   useEffect(() => { fetchHistorial(); }, []);
 
+  // --- FUNCIÓN PARA GENERAR EL PDF PROFESIONAL ---
+  const descargarPDF = (p: any) => {
+    const doc = new jsPDF();
+    const azulOdeplac = [30, 61, 107];
+
+    // 1. Cabecera y Logo
+    doc.setFillColor(azulOdeplac[0], azulOdeplac[1], azulOdeplac[2]);
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(24);
+    doc.setFont("helvetica", "bold");
+    doc.text("ODEPLAC PRO", 14, 25);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("SISTEMAS DE YESO LAMINADO Y REVESTIMIENTOS", 14, 32);
+
+    // 2. Información del Presupuesto
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("DATOS DEL CLIENTE:", 14, 55);
+    doc.setFont("helvetica", "normal");
+    doc.text(p.cliente_nombre.toUpperCase(), 14, 60);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("PROYECTO / OBRA:", 100, 55);
+    doc.setFont("helvetica", "normal");
+    doc.text(p.obra_nombre.toUpperCase(), 100, 60);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("FECHA EMISIÓN:", 160, 55);
+    doc.setFont("helvetica", "normal");
+    doc.text(new Date(p.created_at).toLocaleDateString(), 160, 60);
+
+    // 3. Tabla de Partidas
+    const tableRows = p.partidas_json?.map((item: any) => [
+      item.item || '-',
+      { 
+        content: `${item.descripcion}\nSistema: ${item.tipo || 'N/A'} | Placa: ${item.placa || 'N/A'}`, 
+        styles: { fontSize: 8, textColor: [80, 80, 80] } 
+      },
+      `${item.medicion} m²`,
+      `${item.total_euros} €`
+    ]);
+
+    autoTable(doc, {
+      startY: 70,
+      head: [['Nº', 'DESCRIPCIÓN TÉCNICA', 'MEDICIÓN', 'IMPORTE']],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: azulOdeplac, textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { cellPadding: 5, fontSize: 9 },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        2: { cellWidth: 25, halign: 'right' },
+        3: { cellWidth: 30, halign: 'right' },
+      }
+    });
+
+    // 4. Resumen Final
+    const finalY = (doc as any).lastAutoTable.finalY + 15;
+    
+    doc.setDrawColor(azulOdeplac[0], azulOdeplac[1], azulOdeplac[2]);
+    doc.setLineWidth(0.5);
+    doc.line(120, finalY - 5, 196, finalY - 5);
+
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "bold");
+    doc.text("TOTAL ESTIMACIÓN MATERIALES:", 120, finalY);
+    doc.text(`${p.total_materiales.toLocaleString()} €`, 196, finalY, { align: 'right' });
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(120, 120, 120);
+    doc.text("* Este documento es una valoración técnica de materiales basada en mediciones de proyecto.", 14, finalY + 20);
+
+    // 5. Pie de Página
+    doc.setFontSize(8);
+    doc.text("Generado automáticamente por Odeplac Pro AI Cloud", 105, 285, { align: 'center' });
+
+    doc.save(`Presupuesto_${p.obra_nombre.replace(/\s+/g, '_')}.pdf`);
+  };
+
   const guardarNombre = async () => {
     const { error } = await supabase
       .from('presupuestos_generados')
@@ -46,7 +133,7 @@ export default function HistorialPresupuestos() {
   };
 
   const eliminarPresupuesto = async (id: string) => {
-    if (!confirm("¿Estás seguro de que quieres borrar este presupuesto? Se eliminará del historial permanentemente.")) return;
+    if (!confirm("¿Estás seguro de que quieres borrar este presupuesto?")) return;
     
     const { error } = await supabase
       .from('presupuestos_generados')
@@ -68,8 +155,7 @@ export default function HistorialPresupuestos() {
 
     if (error) return toast.error("Error al resetear");
     
-    toast.success("Estado reseteado: ya puedes volver a lanzarlo al Pipeline");
-    // CORRECCIÓN PARA VERCEL: Añadido tipo (prev: any)
+    toast.success("Estado reseteado");
     setPresupuestoSeleccionado((prev: any) => ({ ...prev, estado: 'pendiente' }));
     fetchHistorial();
   };
@@ -98,11 +184,11 @@ export default function HistorialPresupuestos() {
         .update({ estado: 'aprobado' })
         .eq('id', presupuestoSeleccionado.id);
 
-      toast.success("¡Obra vinculada al cliente y enviada al Pipeline! 🚀");
+      toast.success("¡Enviado al Pipeline! 🚀");
       setPresupuestoSeleccionado(null);
       fetchHistorial();
     } catch (error: any) {
-      toast.error("Error al sincronizar: " + error.message);
+      toast.error("Error: " + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -125,24 +211,24 @@ export default function HistorialPresupuestos() {
                       className="text-2xl font-black uppercase border-b-2 border-blue-500 outline-none w-full bg-transparent"
                       autoFocus
                     />
-                    <button onClick={guardarNombre} className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"><Save size={18}/></button>
+                    <button onClick={guardarNombre} className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"><Save size={18}/></button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-black text-[#1e3d6b] uppercase tracking-tighter">{presupuestoSeleccionado.obra_nombre}</h2>
-                    <button onClick={() => {setEditandoNombre(true); setNuevoNombre(presupuestoSeleccionado.obra_nombre)}} className="text-zinc-300 hover:text-blue-500 transition-colors"><Edit2 size={18}/></button>
+                    <button onClick={() => {setEditandoNombre(true); setNuevoNombre(presupuestoSeleccionado.obra_nombre)}} className="text-zinc-300 hover:text-blue-500"><Edit2 size={18}/></button>
                   </div>
                 )}
               </div>
               
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => eliminarPresupuesto(presupuestoSeleccionado.id)}
-                  className="p-2 text-red-400 hover:bg-red-50 rounded-full transition-all"
+                  onClick={() => descargarPDF(presupuestoSeleccionado)}
+                  className="flex items-center gap-2 bg-[#1e3d6b] text-white px-4 py-2 rounded-xl hover:bg-[#2a548a] transition-all text-xs font-bold mr-2"
                 >
-                  <Trash2 size={22} />
+                  <Download size={16} /> PDF
                 </button>
-                <button onClick={() => setPresupuestoSeleccionado(null)} className="p-2 text-zinc-400 hover:bg-zinc-200 rounded-full transition-all"><X size={24}/></button>
+                <button onClick={() => setPresupuestoSeleccionado(null)} className="p-2 text-zinc-400 hover:bg-zinc-200 rounded-full"><X size={24}/></button>
               </div>
             </div>
             
@@ -152,9 +238,9 @@ export default function HistorialPresupuestos() {
                   <p className="text-[10px] text-zinc-400 font-bold uppercase mb-1">Cliente Solicitante</p>
                   <p className="font-bold text-zinc-800">{presupuestoSeleccionado.cliente_nombre}</p>
                 </div>
-                <div className="p-4 bg-[#1e3d6b] rounded-2xl text-white shadow-lg">
-                  <p className="text-[10px] opacity-60 font-bold uppercase mb-1">Total Materiales</p>
-                  <p className="text-xl font-black">{presupuestoSeleccionado.total_materiales} €</p>
+                <div className="p-4 bg-[#1e3d6b] rounded-2xl text-white shadow-lg text-center">
+                  <p className="text-[10px] opacity-60 font-bold uppercase mb-1">Total Estimado Materiales</p>
+                  <p className="text-xl font-black">{presupuestoSeleccionado.total_materiales.toLocaleString()} €</p>
                 </div>
                 <div className="flex flex-col gap-2">
                    {presupuestoSeleccionado.estado === 'aprobado' ? (
@@ -162,21 +248,13 @@ export default function HistorialPresupuestos() {
                       <div className="w-full bg-green-50 text-green-600 p-4 rounded-2xl flex items-center justify-center gap-2 font-black uppercase text-[10px] border border-green-100">
                         <CheckCircle2 size={18}/> En Pipeline
                       </div>
-                      <button 
-                        onClick={() => resetearEstado(presupuestoSeleccionado.id)}
-                        className="text-[10px] text-orange-600 font-bold uppercase flex items-center justify-center gap-1 hover:underline"
-                      >
-                        <RotateCcw size={12}/> Resetear estado para re-enviar
+                      <button onClick={() => resetearEstado(presupuestoSeleccionado.id)} className="text-[10px] text-orange-600 font-bold uppercase flex items-center justify-center gap-1 hover:underline">
+                        <RotateCcw size={12}/> Resetear estado
                       </button>
                      </>
                    ) : (
-                     <button 
-                      onClick={aprobarYPasarAPipeline}
-                      disabled={isProcessing}
-                      className="w-full bg-green-500 hover:bg-green-600 text-white p-4 rounded-2xl flex items-center justify-center gap-2 font-black uppercase text-xs transition-all shadow-lg shadow-green-500/20 active:scale-95"
-                     >
-                       {isProcessing ? <Loader2 className="animate-spin h-5 w-5"/> : <Rocket size={20}/>}
-                       Aprobar y Enviar
+                     <button onClick={aprobarYPasarAPipeline} disabled={isProcessing} className="w-full bg-green-500 hover:bg-green-600 text-white p-4 rounded-2xl flex items-center justify-center gap-2 font-black uppercase text-xs shadow-lg active:scale-95 transition-all">
+                       {isProcessing ? <Loader2 className="animate-spin h-5 w-5"/> : <Rocket size={20}/>} Aprobar y Enviar
                      </button>
                    )}
                 </div>
@@ -207,6 +285,12 @@ export default function HistorialPresupuestos() {
                   </tbody>
                 </table>
               </div>
+              <div className="mt-4 flex justify-between items-center text-zinc-400 text-[10px] font-bold uppercase tracking-widest">
+                <button onClick={() => eliminarPresupuesto(presupuestoSeleccionado.id)} className="flex items-center gap-1 text-red-400 hover:text-red-500 transition-colors">
+                  <Trash2 size={12}/> Eliminar definitivamente
+                </button>
+                <span>ID: {presupuestoSeleccionado.id}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -217,7 +301,7 @@ export default function HistorialPresupuestos() {
           <Link href="/dashboard/presupuestos" className="p-3 bg-white/10 rounded-2xl hover:bg-white/20 transition-all active:scale-95 shadow-lg"><ArrowLeft size={20} /></Link>
           <div>
             <h1 className="text-3xl font-black uppercase tracking-tight">Historial de Mediciones</h1>
-            <p className="text-blue-100/60 text-sm">Control de presupuestos y gestión del pipeline comercial.</p>
+            <p className="text-blue-100/60 text-sm">Control de presupuestos y generación de documentos PDF.</p>
           </div>
         </div>
       </div>
