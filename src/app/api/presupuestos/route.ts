@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// Inicializamos el cliente de Supabase con Service Role para tener permisos de escritura
+// Inicializamos el cliente de Supabase con Service Role
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -39,6 +39,7 @@ export async function POST(req: Request) {
 
     // 3. Consultar Recetas y Precios en Supabase
     console.log("💾 [CHIVATO 5]: Consultando recetas de materiales en Supabase...");
+    // Añadimos el tipado <any[]> para que TS no se queje de las propiedades de la tabla
     const { data: recetas, error: errorRecetas } = await supabase
       .from('sistema_composicion')
       .select(`
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
         placa_tipo, 
         cantidad_por_m2,
         materiales ( nombre, precio_venta )
-      `);
+      `) as { data: any[] | null, error: any };
 
     if (errorRecetas) {
       console.error("❌ [ERROR SUPABASE]: No se pudieron cargar las recetas", errorRecetas.message);
@@ -56,7 +57,6 @@ export async function POST(req: Request) {
 
     // 4. Calcular el presupuesto cruzando IA + Base de Datos
     const partidasCalculadas = partidasExtraidas.map((p: any, index: number) => {
-      // Filtrado robusto (sin importar mayúsculas o espacios)
       const componentes = recetas?.filter(r => 
         r.nombre_sistema?.toLowerCase().trim() === p.tipo?.toLowerCase().trim() &&
         r.placa_tipo?.toLowerCase().trim() === p.placa?.toLowerCase().trim()
@@ -67,7 +67,9 @@ export async function POST(req: Request) {
       }
 
       const totalPartida = componentes.reduce((acc, c) => {
-        const precio = Number(c.materiales?.precio_venta || 0);
+        // SOLUCIÓN PARA VERCEL: Validamos si materiales es un array o un objeto
+        const m = Array.isArray(c.materiales) ? c.materiales[0] : c.materiales;
+        const precio = Number(m?.precio_venta || 0);
         const ratio = Number(c.cantidad_por_m2 || 0);
         return acc + (Number(p.medicion) * ratio * precio);
       }, 0);
@@ -84,7 +86,7 @@ export async function POST(req: Request) {
     const totalObra = partidasCalculadas.reduce((acc, p) => acc + parseFloat(p.total_euros), 0);
     console.log(`💰 [CHIVATO FINAL]: Cálculo completado. Total Obra: ${totalObra.toFixed(2)}€`);
 
-    // --- NUEVO: GUARDAR EN LA TABLA DE HISTORIAL ---
+    // --- GUARDAR EN LA TABLA DE HISTORIAL ---
     console.log("🗄️ [CHIVATO 7]: Guardando presupuesto en el historial...");
     const { error: errorGuardado } = await supabase
       .from('presupuestos_generados')
@@ -101,7 +103,6 @@ export async function POST(req: Request) {
       console.log("✨ [CHIVATO 8]: Presupuesto guardado en el historial correctamente.");
     }
 
-    // RESPUESTA ESTRUCTURADA PARA EL FRONTEND
     return NextResponse.json({
       success: true,
       obra: dataIA.obra || "Obra Nueva",
