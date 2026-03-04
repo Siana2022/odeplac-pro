@@ -45,7 +45,6 @@ export default function HistorialPresupuestos() {
     fetchHistorial();
   };
 
-  // NUEVA FUNCIÓN: ELIMINAR PRESUPUESTO
   const eliminarPresupuesto = async (id: string) => {
     if (!confirm("¿Estás seguro de que quieres borrar este presupuesto? Se eliminará del historial permanentemente.")) return;
     
@@ -61,7 +60,6 @@ export default function HistorialPresupuestos() {
     fetchHistorial();
   };
 
-  // NUEVA FUNCIÓN: RESETEAR ESTADO (Para poder volver a lanzar)
   const resetearEstado = async (id: string) => {
     const { error } = await supabase
       .from('presupuestos_generados')
@@ -71,21 +69,20 @@ export default function HistorialPresupuestos() {
     if (error) return toast.error("Error al resetear");
     
     toast.success("Estado reseteado: ya puedes volver a lanzarlo al Pipeline");
-    setPresupuestoSeleccionado(prev => ({ ...prev, estado: 'pendiente' }));
+    // CORRECCIÓN PARA VERCEL: Añadido tipo (prev: any)
+    setPresupuestoSeleccionado((prev: any) => ({ ...prev, estado: 'pendiente' }));
     fetchHistorial();
   };
 
   const aprobarYPasarAPipeline = async () => {
     setIsProcessing(true);
     try {
-      // 1. Buscamos el ID del cliente usando su nombre (Exacto)
       const { data: clienteEncontrado } = await supabase
         .from('clientes')
         .select('id')
         .eq('nombre', presupuestoSeleccionado.cliente_nombre)
         .single();
 
-      // 2. Insertamos en la tabla 'obras' con el ID real
       const { error: errorObra } = await supabase.from('obras').insert([{
         titulo: presupuestoSeleccionado.obra_nombre,
         total_presupuesto: presupuestoSeleccionado.total_materiales,
@@ -97,7 +94,6 @@ export default function HistorialPresupuestos() {
 
       if (errorObra) throw errorObra;
 
-      // 3. Marcamos como aprobado en el historial
       await supabase.from('presupuestos_generados')
         .update({ estado: 'aprobado' })
         .eq('id', presupuestoSeleccionado.id);
@@ -115,7 +111,6 @@ export default function HistorialPresupuestos() {
   return (
     <div className="w-full max-w-[1200px] mx-auto p-6 lg:p-10 text-white">
       
-      {/* Detalle del Presupuesto (Modal) */}
       {presupuestoSeleccionado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1e3d6b]/95 backdrop-blur-md overflow-y-auto">
           <div className="bg-white text-zinc-800 w-full max-w-4xl rounded-3xl shadow-2xl my-auto animate-in zoom-in-95">
@@ -141,11 +136,9 @@ export default function HistorialPresupuestos() {
               </div>
               
               <div className="flex items-center gap-2">
-                {/* Botón Borrar */}
                 <button 
                   onClick={() => eliminarPresupuesto(presupuestoSeleccionado.id)}
                   className="p-2 text-red-400 hover:bg-red-50 rounded-full transition-all"
-                  title="Eliminar Presupuesto"
                 >
                   <Trash2 size={22} />
                 </button>
@@ -219,7 +212,6 @@ export default function HistorialPresupuestos() {
         </div>
       )}
 
-      {/* Cabecera Principal */}
       <div className="flex items-center justify-between mb-10">
         <div className="flex items-center gap-4">
           <Link href="/dashboard/presupuestos" className="p-3 bg-white/10 rounded-2xl hover:bg-white/20 transition-all active:scale-95 shadow-lg"><ArrowLeft size={20} /></Link>
