@@ -83,7 +83,7 @@ export async function POST(req: Request) {
       };
     });
 
-    const totalObra = partidasCalculadas.reduce((acc, p) => acc + parseFloat(p.total_euros), 0);
+    const totalObra = partidasCalculadas.reduce((acc: number, p: any) => acc + parseFloat(p.total_euros), 0);
     console.log(`💰 [CHIVATO FINAL]: Cálculo completado. Total Obra: ${totalObra.toFixed(2)}€`);
 
     // --- GUARDAR EN LA TABLA DE HISTORIAL ---
