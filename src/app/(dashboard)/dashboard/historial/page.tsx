@@ -36,7 +36,8 @@ export default function HistorialPresupuestos() {
   // --- FUNCIÓN PARA GENERAR EL PDF PROFESIONAL ---
   const descargarPDF = (p: any) => {
     const doc = new jsPDF();
-    const azulOdeplac = [30, 61, 107];
+    // CORRECCIÓN: Añadimos "as const" para que TS sepa que son exactamente 3 números (RGB)
+    const azulOdeplac = [30, 61, 107] as const;
 
     // 1. Cabecera y Logo
     doc.setFillColor(azulOdeplac[0], azulOdeplac[1], azulOdeplac[2]);
@@ -85,7 +86,12 @@ export default function HistorialPresupuestos() {
       head: [['Nº', 'DESCRIPCIÓN TÉCNICA', 'MEDICIÓN', 'IMPORTE']],
       body: tableRows,
       theme: 'grid',
-      headStyles: { fillColor: azulOdeplac, textColor: [255, 255, 255], fontStyle: 'bold' },
+      // CORRECCIÓN: Forzamos el tipo de fillColor para evitar el error de Vercel
+      headStyles: { 
+        fillColor: azulOdeplac as [number, number, number], 
+        textColor: [255, 255, 255] as [number, number, number], 
+        fontStyle: 'bold' 
+      },
       styles: { cellPadding: 5, fontSize: 9 },
       columnStyles: {
         0: { cellWidth: 12, halign: 'center' },
@@ -196,7 +202,7 @@ export default function HistorialPresupuestos() {
 
   return (
     <div className="w-full max-w-[1200px] mx-auto p-6 lg:p-10 text-white">
-      
+      {/* El resto del JSX se mantiene igual */}
       {presupuestoSeleccionado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1e3d6b]/95 backdrop-blur-md overflow-y-auto">
           <div className="bg-white text-zinc-800 w-full max-w-4xl rounded-3xl shadow-2xl my-auto animate-in zoom-in-95">
