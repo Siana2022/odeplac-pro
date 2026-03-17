@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, UserPlus, Loader2, Mail, Phone, MapPin, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import Link from 'next/link'; // Importación necesaria para la navegación
 
 export default function ClientesPage() {
   const [showModal, setShowModal] = useState(false);
@@ -11,7 +12,6 @@ export default function ClientesPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [clientes, setClientes] = useState<any[]>([]);
   
-  // Estado del formulario ajustado a tus columnas reales
   const [formData, setFormData] = useState({
     nombre: '',
     email: '',
@@ -22,7 +22,6 @@ export default function ClientesPage() {
 
   const supabase = createClient();
 
-  // Cargar clientes de la base de datos
   const fetchClientes = async () => {
     setLoading(true);
     try {
@@ -45,7 +44,6 @@ export default function ClientesPage() {
     fetchClientes();
   }, []);
 
-  // Guardar cliente usando solo las columnas que existen en tu tabla
   const handleSave = async () => {
     if (!formData.nombre) return toast.error('El nombre es obligatorio');
     
@@ -59,14 +57,12 @@ export default function ClientesPage() {
           telefono: formData.telefono,
           direccion: formData.direccion,
           nif_cif: formData.nif_cif
-          // Eliminado usuario_id porque no existe en tu tabla según el SQL Editor
         }]);
 
       if (error) throw error;
 
       toast.success('¡Cliente guardado correctamente!');
       setShowModal(false);
-      // Limpiar formulario
       setFormData({ nombre: '', email: '', telefono: '', direccion: '', nif_cif: '' });
       fetchClientes();
     } catch (error: any) {
@@ -128,9 +124,12 @@ export default function ClientesPage() {
                   <td className="p-4 text-blue-100/70 text-sm">{c.email || '-'}</td>
                   <td className="p-4 text-blue-100/70 text-sm">{c.telefono || '-'}</td>
                   <td className="p-4 text-right">
-                    <button className="text-xs bg-white/10 hover:bg-white/20 text-white px-4 py-1.5 rounded-lg transition-all">
-                      Ficha
-                    </button>
+                    {/* BOTÓN ACTUALIZADO A LINK DINÁMICO */}
+                    <Link href={`/dashboard/clientes/${c.id}`}>
+                      <button className="text-xs bg-white/10 hover:bg-white text-white hover:text-[#295693] px-4 py-1.5 rounded-lg transition-all font-bold">
+                        Ficha
+                      </button>
+                    </Link>
                   </td>
                 </tr>
               ))
@@ -153,6 +152,7 @@ export default function ClientesPage() {
             </div>
             
             <div className="space-y-4">
+              {/* Formulario de entrada... (se mantiene igual) */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-blue-200/60 uppercase ml-1 tracking-widest">Nombre o Razón Social</label>
                 <input 
