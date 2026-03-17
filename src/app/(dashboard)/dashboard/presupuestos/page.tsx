@@ -46,6 +46,35 @@ export default function GestionPresupuestos() {
     initData();
   }, [supabase]);
 
+  // FUNCIONALIDAD: ACTUALIZACIÓN Y VINCULACIÓN CON STOCK
+  const actualizarPartida = (index: number, campo: string, valor: any) => {
+    setPartidas(prev => {
+      const nuevas = [...prev];
+      nuevas[index] = { ...nuevas[index], [campo]: valor };
+      
+      // Si cambiamos la descripción, buscamos si es un material de stock
+      if (campo === 'descripcion') {
+        const material = misMateriales.find(m => m.nombre.toLowerCase() === valor.toLowerCase());
+        if (material) {
+          const medicion = parseFloat(nuevas[index].medicion) || 0;
+          nuevas[index].producto = material.nombre;
+          nuevas[index].distribuidor = material.proveedores?.nombre || "Sin proveedor";
+          nuevas[index].total_euros = (material.precio_venta * medicion).toFixed(2);
+          toast.info(`Material detectado: ${material.precio_venta}€/u`, { duration: 1500 });
+        }
+      }
+      
+      // Si cambiamos la medición y hay un material vinculado, recalculamos coste
+      if (campo === 'medicion' && nuevas[index].producto) {
+        const material = misMateriales.find(m => m.nombre === nuevas[index].producto);
+        if (material) {
+          nuevas[index].total_euros = (material.precio_venta * (parseFloat(valor) || 0)).toFixed(2);
+        }
+      }
+      return nuevas;
+    });
+  };
+
   // PREPARAR FACTURA (Abre el modal con datos precargados)
   const prepararFactura = async (presupuestoData: any) => {
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', presupuestoData.cliente_id).single();
@@ -98,7 +127,7 @@ export default function GestionPresupuestos() {
     }
   };
 
-  // GENERADOR DE PDF DE PRESUPUESTO (RECUPERADO Y MEJORADO)
+  // GENERADOR DE PDF DE PRESUPUESTO
   const generarPDFPresupuesto = (subtotal: number) => {
     const doc = new jsPDF();
     const fechaHoy = new Date().toLocaleDateString('es-ES');
@@ -190,7 +219,7 @@ export default function GestionPresupuestos() {
       if (error) throw error;
       generarPDFPresupuesto(subtotal);
       toast.success("Presupuesto guardado.");
-      prepararFactura(presuGuardado); // Abrir modal de factura
+      prepararFactura(presuGuardado); 
       setPartidas([]);
     } catch (err: any) { toast.error("Error: " + err.message); }
     finally { setIsSaving(false); }
@@ -199,7 +228,14 @@ export default function GestionPresupuestos() {
   return (
     <div className="w-full max-w-[1400px] mx-auto p-6 lg:p-10 text-white font-sans relative">
       
-      {/* MODAL DE EDICIÓN DE FACTURA (ANTES DE GENERAR) */}
+      {/* DATALIST PARA MATERIALES */}
+      <datalist id="datalist-materiales">
+        {misMateriales.map((m, idx) => (
+          <option key={idx} value={m.nombre}>{m.proveedores?.nombre}</option>
+        ))}
+      </datalist>
+
+      {/* MODAL DE EDICIÓN DE FACTURA */}
       {showFacturaModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowFacturaModal(false)} />
@@ -235,7 +271,7 @@ export default function GestionPresupuestos() {
         </div>
       )}
 
-      {/* RESTO DEL COMPONENTE PRESUPUESTOS (Selector de cliente, Editor, etc.) */}
+      {/* CABECERA */}
       <div className="flex justify-between items-center mb-10">
         <h1 className="text-3xl font-black uppercase tracking-tighter italic italic">Odeplac <span className="text-blue-400">Presupuestos</span></h1>
         <div className="flex gap-4">
@@ -269,14 +305,28 @@ export default function GestionPresupuestos() {
               <div className="p-8">
                 <div className="space-y-4 mb-8">
                   {partidas.map((p, i) => (
-                    <div key={i} className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 items-start">
+                    <div key={i} className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 items-start group">
                          <span className="text-zinc-300 font-bold text-xs italic">{i+1}</span>
-                         <textarea className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-zinc-700 resize-none p-1 uppercase" value={p.descripcion} rows={2} onChange={(e) => { const n = [...partidas]; n[i].descripcion = e.target.value; setPartidas(n); }} />
-                         <div className="flex flex-col gap-2">
-                            <input type="number" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => { const n = [...partidas]; n[i].medicion = e.target.value; setPartidas(n); }} />
-                            <input type="number" className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]" value={p.total_euros} onChange={(e) => { const n = [...partidas]; n[i].total_euros = e.target.value; setPartidas(n); }} />
+                         <div className="flex-1">
+                            <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Descripción / Buscar Material</label>
+                            <input 
+                              list="datalist-materiales" 
+                              className="w-full bg-transparent border-none outline-none text-sm font-bold text-zinc-700 p-1 uppercase" 
+                              value={p.descripcion} 
+                              onChange={(e) => actualizarPartida(i, 'descripcion', e.target.value)} 
+                              placeholder="ESCRIBE O SELECCIONA MATERIAL..."
+                            />
+                            {p.distribuidor && (
+                              <div className="flex items-center gap-2 text-[10px] text-blue-500 font-bold uppercase italic mt-1">
+                                <Truck size={12} /> Stock: {p.distribuidor}
+                              </div>
+                            )}
                          </div>
-                         <button onClick={() => setPartidas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500"><Trash2 size={18}/></button>
+                         <div className="flex flex-col gap-2">
+                            <input type="number" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value)} />
+                            <input type="number" className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]" value={p.total_euros} onChange={(e) => actualizarPartida(i, 'total_euros', e.target.value)} />
+                         </div>
+                         <button onClick={() => setPartidas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 pt-6"><Trash2 size={18}/></button>
                     </div>
                   ))}
                 </div>
@@ -294,7 +344,7 @@ export default function GestionPresupuestos() {
             </div>
           ) : (
             <div className="h-full min-h-[550px] border-2 border-dashed border-white/5 rounded-[3rem] flex items-center justify-center text-white/10 uppercase font-black text-center">
-               Selecciona un cliente y sube una medición
+               Selecciona un cliente y sube una medición para comenzar
             </div>
           )}
         </div>
