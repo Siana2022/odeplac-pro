@@ -134,7 +134,12 @@ export default function MaterialesPage() {
             return materialData;
           });
 
-          const { error } = await supabase.from('materiales').insert(materialesParaInsertar);
+          const { error: insertError } = await supabase
+  .from('materiales')
+  .upsert(materialesParaInsertar, { 
+    onConflict: 'nombre,proveedor_id',
+    ignoreDuplicates: false  // false = actualiza el precio si ya existe
+  })
 
           if (error) throw error;
 
