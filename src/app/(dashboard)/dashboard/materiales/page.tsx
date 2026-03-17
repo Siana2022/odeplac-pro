@@ -141,7 +141,7 @@ export default function MaterialesPage() {
     ignoreDuplicates: false  // false = actualiza el precio si ya existe
   })
 
-          if (error) throw error;
+  if (insertError) throw new Error(insertError.message)
 
           toast.success(`✅ ${materialesParaInsertar.length} materiales importados correctamente`, { id: toastId });
           fetchMateriales();
