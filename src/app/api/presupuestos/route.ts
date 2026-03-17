@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     n8nFormData.append('cliente', clienteManual);
 
     console.log("📡 [CHIVATO 2]: Enviando archivo a n8n...");
-    const n8nRes = await fetch('https://n8n.sianadigital.com/webhook-test/f466e885-eb72-4984-b756-3f1ebe243584', {
+    const n8nRes = await fetch('https://n8n.sianadigital.com/webhook/f466e885-eb72-4984-b756-3f1ebe243584', {
       method: 'POST',
       body: n8nFormData,
     });
