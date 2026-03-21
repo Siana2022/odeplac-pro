@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { Plus, X, User, Euro, Loader2, ArrowRight, Clock, AlertTriangle, CheckCircle2, MessageSquare, Calendar, Truck, Flag, ChevronDown } from 'lucide-react';
+import { Plus, X, User, Euro, Loader2, ArrowRight, Clock, AlertTriangle, CheckCircle2, MessageSquare, Calendar, Truck, Flag, ChevronDown, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
@@ -27,6 +27,7 @@ export default function PipelinePage() {
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const [tipoSeguimiento, setTipoSeguimiento] = useState('comentario');
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ESTADOS PARA NUEVA OBRA
   const [isCrearModalOpen, setIsCrearModalOpen] = useState(false);
@@ -85,6 +86,22 @@ export default function PipelinePage() {
       toast.error('Error al crear obra');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleEliminarObra = async (id: string) => {
+    try {
+      // Primero eliminamos los seguimientos asociados
+      await supabase.from('obra_seguimiento').delete().eq('obra_id', id);
+      // Luego eliminamos la obra
+      const { error } = await supabase.from('obras').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Obra eliminada correctamente');
+      setConfirmDeleteId(null);
+      setSelectedObra(null);
+      fetchData();
+    } catch (error: any) {
+      toast.error('Error al eliminar la obra: ' + error.message);
     }
   };
 
@@ -178,38 +195,46 @@ export default function PipelinePage() {
               {obras.filter(o => o.estado?.toLowerCase() === col.id).map(obra => (
                 <div 
                   key={obra.id} 
-                  onClick={() => abrirSeguimiento(obra)}
-                  className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-zinc-100 group hover:ring-8 hover:ring-blue-500/10 transition-all cursor-pointer relative"
+                  className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-zinc-100 group hover:ring-8 hover:ring-blue-500/10 transition-all relative"
                 >
-                  <h3 className="font-black text-zinc-900 leading-[1.1] text-xl mb-5 group-hover:text-blue-600 transition-colors uppercase italic break-words">
-                    {obra.titulo}
-                  </h3>
-                  
-                  <div className="space-y-5">
-                    <div className="flex items-center gap-3 text-zinc-400 text-[10px] font-black uppercase tracking-widest bg-zinc-50 p-3 rounded-2xl border border-zinc-100">
-                      <User size={14} className="text-blue-600" /> 
-                      <span className="truncate">{obra.clientes?.nombre || 'Particular'}</span>
-                    </div>
+                  {/* Botón eliminar */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(obra.id); }}
+                    className="absolute top-4 right-4 p-2 text-zinc-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                    title="Eliminar obra"
+                  >
+                    <Trash2 size={16} />
+                  </button>
 
-                    {/* BLOQUE INFERIOR VERTICAL */}
-                    <div className="pt-6 border-t border-zinc-100 space-y-4">
-                      <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-zinc-400 uppercase tracking-tighter mb-1 italic">Presupuesto</span>
-                        <span className="text-2xl font-black text-[#295693] tracking-tighter">
-                          {new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(obra.total_presupuesto || 0)}
-                        </span>
+                  <div onClick={() => abrirSeguimiento(obra)} className="cursor-pointer">
+                    <h3 className="font-black text-zinc-900 leading-[1.1] text-xl mb-5 group-hover:text-blue-600 transition-colors uppercase italic break-words pr-8">
+                      {obra.titulo}
+                    </h3>
+                    
+                    <div className="space-y-5">
+                      <div className="flex items-center gap-3 text-zinc-400 text-[10px] font-black uppercase tracking-widest bg-zinc-50 p-3 rounded-2xl border border-zinc-100">
+                        <User size={14} className="text-blue-600" /> 
+                        <span className="truncate">{obra.clientes?.nombre || 'Particular'}</span>
                       </div>
-                      
-                      <div className="relative w-full">
-                        <select 
-                          value={obra.estado?.toLowerCase()}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => moverObra(obra.id, e.target.value)}
-                          className="w-full text-[10px] font-black bg-[#295693] text-white border-none rounded-2xl px-5 py-3 outline-none hover:bg-blue-600 transition-all cursor-pointer uppercase shadow-lg appearance-none"
-                        >
-                          {COLUMNAS.map(c => <option key={c.id} value={c.id} className="bg-white text-zinc-900">{c.title}</option>)}
-                        </select>
-                        <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/70" />
+
+                      <div className="pt-6 border-t border-zinc-100 space-y-4">
+                        <div className="flex flex-col">
+                          <span className="text-[8px] font-black text-zinc-400 uppercase tracking-tighter mb-1 italic">Presupuesto</span>
+                          <span className="text-2xl font-black text-[#295693] tracking-tighter">
+                            {new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(obra.total_presupuesto || 0)}
+                          </span>
+                        </div>
+                        
+                        <div className="relative w-full" onClick={e => e.stopPropagation()}>
+                          <select 
+                            value={obra.estado?.toLowerCase()}
+                            onChange={(e) => moverObra(obra.id, e.target.value)}
+                            className="w-full text-[10px] font-black bg-[#295693] text-white border-none rounded-2xl px-5 py-3 outline-none hover:bg-blue-600 transition-all cursor-pointer uppercase shadow-lg appearance-none"
+                          >
+                            {COLUMNAS.map(c => <option key={c.id} value={c.id} className="bg-white text-zinc-900">{c.title}</option>)}
+                          </select>
+                          <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/70" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -224,6 +249,35 @@ export default function PipelinePage() {
           </div>
         ))}
       </div>
+
+      {/* MODAL CONFIRMAR BORRADO */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-[10004] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl animate-in zoom-in-95 space-y-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={28} className="text-red-500" />
+              </div>
+              <h3 className="text-2xl font-black text-zinc-900 uppercase italic">¿Eliminar Obra?</h3>
+              <p className="text-zinc-500 text-sm mt-2">Esta acción no se puede deshacer. Se eliminarán también todos los seguimientos asociados.</p>
+            </div>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="flex-1 py-4 border-2 border-zinc-200 rounded-2xl font-black text-zinc-600 hover:bg-zinc-50 transition-all text-xs uppercase"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleEliminarObra(confirmDeleteId)}
+                className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black hover:bg-red-600 transition-all text-xs uppercase shadow-lg"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL CREAR OBRA */}
       {isCrearModalOpen && (
@@ -313,9 +367,18 @@ export default function PipelinePage() {
                     <span className="bg-white/10 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">{selectedObra.estado}</span>
                 </div>
               </div>
-              <button onClick={() => setSelectedObra(null)} className="bg-white/10 hover:bg-white text-white hover:text-[#295693] p-4 sm:p-6 rounded-[2rem] transition-all">
-                <X size={28} strokeWidth={3} />
-              </button>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => { setSelectedObra(null); setConfirmDeleteId(selectedObra.id); }}
+                  className="bg-red-500/20 hover:bg-red-500 text-white p-4 rounded-[2rem] transition-all"
+                  title="Eliminar obra"
+                >
+                  <Trash2 size={20} />
+                </button>
+                <button onClick={() => setSelectedObra(null)} className="bg-white/10 hover:bg-white text-white hover:text-[#295693] p-4 sm:p-6 rounded-[2rem] transition-all">
+                  <X size={28} strokeWidth={3} />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-zinc-50">

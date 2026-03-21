@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, UserPlus, Loader2, Mail, Phone, MapPin, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import Link from 'next/link'; // Importación necesaria para la navegación
+import Link from 'next/link';
 
 export default function ClientesPage() {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [clientes, setClientes] = useState<any[]>([]);
+  const [busqueda, setBusqueda] = useState('');
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -73,6 +74,17 @@ export default function ClientesPage() {
     }
   };
 
+  // Filtrado en tiempo real
+  const clientesFiltrados = clientes.filter(c => {
+    const q = busqueda.toLowerCase();
+    return (
+      c.nombre?.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q) ||
+      c.telefono?.toLowerCase().includes(q) ||
+      c.nif_cif?.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Cabecera */}
@@ -88,6 +100,32 @@ export default function ClientesPage() {
           <Plus size={20} /> Nuevo Cliente
         </button>
       </div>
+
+      {/* Buscador */}
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+        <input
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por nombre, email, teléfono o NIF..."
+          className="w-full bg-white/10 border border-white/10 rounded-2xl py-4 pl-12 pr-6 text-white placeholder:text-white/30 font-bold text-sm outline-none focus:border-white/30 transition-all backdrop-blur-sm"
+        />
+        {busqueda && (
+          <button
+            onClick={() => setBusqueda('')}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest"
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Contador de resultados */}
+      {busqueda && (
+        <p className="text-white/40 text-xs font-bold uppercase tracking-widest">
+          {clientesFiltrados.length} resultado{clientesFiltrados.length !== 1 ? 's' : ''} para &ldquo;{busqueda}&rdquo;
+        </p>
+      )}
 
       {/* Tabla de Resultados */}
       <div className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden">
@@ -108,14 +146,17 @@ export default function ClientesPage() {
                   <span className="text-blue-100/40 text-sm">Consultando base de datos...</span>
                 </td>
               </tr>
-            ) : clientes.length === 0 ? (
+            ) : clientesFiltrados.length === 0 ? (
               <tr>
                 <td colSpan={4} className="p-12 text-center text-blue-100/40 italic">
-                  No hay clientes. Pulsa "Nuevo Cliente" para registrar el primero.
+                  {busqueda
+                    ? `No se encontraron clientes con "${busqueda}".`
+                    : 'No hay clientes. Pulsa "Nuevo Cliente" para registrar el primero.'
+                  }
                 </td>
               </tr>
             ) : (
-              clientes.map((c) => (
+              clientesFiltrados.map((c) => (
                 <tr key={c.id} className="hover:bg-white/5 transition-colors group">
                   <td className="p-4">
                     <div className="font-bold text-white">{c.nombre}</div>
@@ -124,7 +165,6 @@ export default function ClientesPage() {
                   <td className="p-4 text-blue-100/70 text-sm">{c.email || '-'}</td>
                   <td className="p-4 text-blue-100/70 text-sm">{c.telefono || '-'}</td>
                   <td className="p-4 text-right">
-                    {/* BOTÓN ACTUALIZADO A LINK DINÁMICO */}
                     <Link href={`/dashboard/clientes/${c.id}`}>
                       <button className="text-xs bg-white/10 hover:bg-white text-white hover:text-[#295693] px-4 py-1.5 rounded-lg transition-all font-bold">
                         Ficha
@@ -152,7 +192,6 @@ export default function ClientesPage() {
             </div>
             
             <div className="space-y-4">
-              {/* Formulario de entrada... (se mantiene igual) */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-blue-200/60 uppercase ml-1 tracking-widest">Nombre o Razón Social</label>
                 <input 

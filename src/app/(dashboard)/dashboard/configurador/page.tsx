@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Plus, Trash2, Save, Brain, Search, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Settings, Plus, Trash2, Save, Brain, ChevronDown, ChevronUp, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ConfiguradorSistemas() {
@@ -13,21 +13,13 @@ export default function ConfiguradorSistemas() {
   const [palabrasClave, setPalabrasClave] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmDeleteSistema, setConfirmDeleteSistema] = useState<string | null>(null);
 
   const fetchData = async () => {
     const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
-    // Traemos los sistemas y sus materiales vinculados
     const { data: sis, error } = await supabase
       .from('sistemas_maestros')
-      .select(`
-        *,
-        sistema_composicion (
-          id,
-          material_id,
-          cantidad_por_m2,
-          materiales (nombre, precio_venta)
-        )
-      `);
+      .select(`*, sistema_composicion (id, material_id, cantidad_por_m2, materiales (nombre, precio_venta))`);
     
     if (error) console.error("Error fetching:", error);
     setMateriales(mat || []);
@@ -37,7 +29,7 @@ export default function ConfiguradorSistemas() {
   useEffect(() => { fetchData(); }, []);
 
   const crearSistema = async () => {
-    if(!nombreNuevo) return;
+    if (!nombreNuevo) return;
     const { error } = await supabase.from('sistemas_maestros').insert([
       { nombre: nombreNuevo, palabras_clave: palabrasClave.split(',').map(s => s.trim()) }
     ]);
@@ -48,23 +40,28 @@ export default function ConfiguradorSistemas() {
     }
   };
 
-  const añadirMaterialASistema = async (sistemaId: string, materialId: string) => {
-    // Buscamos el material para tener su nombre en el log
-    const mat = materiales.find(m => m.id === materialId);
-    
-    const { error } = await supabase.from('sistema_composicion').insert([
-      { 
-        sistema_maestro_id: sistemaId, 
-        material_id: materialId, 
-        cantidad_por_m2: 1,
-        // Añadimos estos campos vacíos por si la DB aún los pide
-        nombre_sistema: '', 
-        placa_tipo: '' 
-      }
-    ]);
+  const eliminarSistema = async (sistemaId: string) => {
+    try {
+      // Primero eliminamos la composición
+      await supabase.from('sistema_composicion').delete().eq('sistema_maestro_id', sistemaId);
+      // Luego el sistema
+      const { error } = await supabase.from('sistemas_maestros').delete().eq('id', sistemaId);
+      if (error) throw error;
+      toast.success("Sistema eliminado correctamente");
+      setConfirmDeleteSistema(null);
+      setExpandido(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error("Error al eliminar: " + err.message);
+    }
+  };
 
+  const añadirMaterialASistema = async (sistemaId: string, materialId: string) => {
+    const mat = materiales.find(m => m.id === materialId);
+    const { error } = await supabase.from('sistema_composicion').insert([
+      { sistema_maestro_id: sistemaId, material_id: materialId, cantidad_por_m2: 1, nombre_sistema: '', placa_tipo: '' }
+    ]);
     if (error) {
-      console.error("Detalle del error:", error);
       toast.error("No se pudo añadir: " + error.message);
     } else {
       toast.success(`${mat.nombre} añadido a la receta`);
@@ -121,6 +118,25 @@ export default function ConfiguradorSistemas() {
         </button>
       </div>
 
+      {/* Modal confirmar borrado de sistema */}
+      {confirmDeleteSistema && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl space-y-6 animate-in zoom-in-95">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle size={28} className="text-red-500" />
+              </div>
+              <h3 className="text-2xl font-black text-zinc-900 uppercase italic">¿Eliminar Sistema?</h3>
+              <p className="text-zinc-500 text-sm mt-2">Se eliminarán también todos los materiales de su receta. Esta acción no se puede deshacer.</p>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={() => setConfirmDeleteSistema(null)} className="flex-1 py-4 border-2 border-zinc-200 rounded-2xl font-black text-zinc-600 hover:bg-zinc-50 transition-all text-xs uppercase">Cancelar</button>
+              <button onClick={() => eliminarSistema(confirmDeleteSistema)} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black hover:bg-red-600 transition-all text-xs uppercase shadow-lg">Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Listado de Sistemas Maestros */}
       <div className="space-y-4">
         {sistemas.map(s => (
@@ -140,7 +156,17 @@ export default function ConfiguradorSistemas() {
                   </div>
                 </div>
               </div>
-              <div className="text-zinc-400">{expandido === s.id ? <ChevronUp /> : <ChevronDown />}</div>
+              <div className="flex items-center gap-3">
+                {/* Botón eliminar sistema */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirmDeleteSistema(s.id); }}
+                  className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                  title="Eliminar sistema"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <div className="text-zinc-400">{expandido === s.id ? <ChevronUp /> : <ChevronDown />}</div>
+              </div>
             </div>
             
             {expandido === s.id && (
@@ -156,8 +182,7 @@ export default function ConfiguradorSistemas() {
                         </div>
                         <div className="flex items-center gap-3 bg-zinc-50 px-4 py-2 rounded-xl border">
                           <input 
-                            type="number" 
-                            step="0.01"
+                            type="number" step="0.01"
                             defaultValue={comp.cantidad_por_m2}
                             onBlur={(e) => actualizarRatio(comp.id, parseFloat(e.target.value))}
                             className="w-16 bg-transparent text-center font-black text-blue-600 outline-none"
@@ -181,7 +206,7 @@ export default function ConfiguradorSistemas() {
                   >
                     <option value="" disabled>Buscar en el catálogo de materiales...</option>
                     {materiales.map(m => (
-                      <option key={m.id} value={m.id}>{m.nombre} — ({m.precio_venta}€)</option>
+                      <option key={m.id} value={m.id}>{m.nombre} — ({m.precio_coste}€)</option>
                     ))}
                   </select>
                 </div>
