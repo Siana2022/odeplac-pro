@@ -12,14 +12,16 @@ export default function ConfiguracionPage() {
   const [clientes, setClientes] = useState<any[]>([]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [empresaLoading, setEmpresaLoading] = useState(false);
   
   const [empresa, setEmpresa] = useState({
-    nombre_fiscal: 'Odeplac Pro S.L.',
-    cif: 'B12345678',
-    direccion: 'Calle de la Innovación, 42',
-    telefono: '600 000 000',
-    email: 'info@odeplac.com',
-    web: 'www.odeplac.com'
+    nombre_fiscal: 'ODEPLAC CONSTRUCCIONES EN SECO S.L.',
+    cif: 'B70725528',
+    direccion: 'Av. de la Albufera Nº 1, 7B / CP 46470 Massanassa VALENCIA',
+    telefono: '645735319',
+    email: 'odeplac1@gmail.com',
+    web: 'www.odeplac.net',
+    iban: 'ES18 3058 2237 9927 2001 4556',
   });
 
   const [formData, setFormData] = useState({
@@ -32,8 +34,47 @@ export default function ConfiguracionPage() {
   const supabase = createClient();
 
   useEffect(() => {
+    fetchEmpresa();
     fetchData();
   }, []);
+
+  const fetchEmpresa = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('empresa_config')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      if (data && !error) {
+        setEmpresa({
+          nombre_fiscal: data.nombre_fiscal || empresa.nombre_fiscal,
+          cif: data.cif || empresa.cif,
+          direccion: data.direccion || empresa.direccion,
+          telefono: data.telefono || empresa.telefono,
+          email: data.email || empresa.email,
+          web: data.web || empresa.web,
+          iban: data.iban || empresa.iban,
+        });
+      }
+    } catch {
+      // Tabla puede no existir aún, usamos defaults
+    }
+  };
+
+  const guardarEmpresa = async () => {
+    setEmpresaLoading(true);
+    try {
+      const { error } = await supabase
+        .from('empresa_config')
+        .upsert({ id: 1, ...empresa, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+      if (error) throw error;
+      toast.success('Datos de empresa actualizados correctamente');
+    } catch (err: any) {
+      toast.error('Error al guardar: ' + err.message);
+    } finally {
+      setEmpresaLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -71,7 +112,6 @@ export default function ConfiguracionPage() {
     
     try {
       if (editingId) {
-        // ACTUALIZAR PERFIL EXISTENTE
         const { error } = await supabase
           .from('perfiles')
           .update({
@@ -83,7 +123,6 @@ export default function ConfiguracionPage() {
         if (error) throw error;
         toast.success('Acceso actualizado correctamente');
       } else {
-        // CREAR NUEVO USUARIO EN AUTH Y LUEGO PERFIL
         if (!formData.password) throw new Error('La contraseña es obligatoria para nuevos accesos');
 
         const { data: authData, error: authError } = await adminCreateUser(
@@ -94,7 +133,6 @@ export default function ConfiguracionPage() {
 
         if (authError) throw authError;
 
-        // --- CORRECCIÓN PARA VERCEL (TypeScript Check) ---
         if (!authData?.user) {
           throw new Error('No se pudo obtener la información del usuario creado.');
         }
@@ -102,7 +140,7 @@ export default function ConfiguracionPage() {
         const { error: perfilError } = await supabase
           .from('perfiles')
           .insert({
-            id: authData.user.id, // Ahora TypeScript sabe que user existe
+            id: authData.user.id,
             email: formData.email,
             nombre: formData.email.split('@')[0].toUpperCase(), 
             rol: formData.rol,
@@ -123,6 +161,16 @@ export default function ConfiguracionPage() {
     }
   };
 
+  const camposEmpresa = [
+    { label: 'Nombre Fiscal', key: 'nombre_fiscal' },
+    { label: 'CIF / NIF', key: 'cif' },
+    { label: 'Dirección Almacén', key: 'direccion' },
+    { label: 'Teléfono', key: 'telefono' },
+    { label: 'Email', key: 'email' },
+    { label: 'Web', key: 'web' },
+    { label: 'IBAN', key: 'iban' },
+  ];
+
   return (
     <div className="space-y-10 pb-20">
       <header>
@@ -141,25 +189,23 @@ export default function ConfiguracionPage() {
             </div>
             
             <div className="space-y-4">
-              {[
-                { label: 'Nombre Fiscal', key: 'nombre_fiscal' },
-                { label: 'CIF / NIF', key: 'cif' },
-                { label: 'Dirección Almacén', key: 'direccion' },
-                { label: 'Teléfono', key: 'telefono' },
-                { label: 'Email', key: 'email' },
-                { label: 'Web', key: 'web' },
-              ].map((field) => (
+              {camposEmpresa.map((field) => (
                 <div key={field.key} className="space-y-1">
                   <label className="text-[9px] font-black text-zinc-400 uppercase ml-2">{field.label}</label>
                   <input 
-                    value={(empresa as any)[field.key]}
-                    onChange={(e) => setEmpresa({...empresa, [field.key]: e.target.value})}
+                    value={(empresa as any)[field.key] || ''}
+                    onChange={(e) => setEmpresa({ ...empresa, [field.key]: e.target.value })}
                     className="w-full bg-zinc-50 border-2 border-zinc-100 rounded-2xl p-3 text-sm font-bold text-zinc-800 outline-none focus:border-blue-500 transition-all"
                   />
                 </div>
               ))}
-              <button className="w-full bg-[#295693] text-white py-4 rounded-[2rem] font-black text-[10px] uppercase shadow-lg mt-4 hover:bg-blue-700 transition-all">
-                Guardar Cambios
+              <button
+                onClick={guardarEmpresa}
+                disabled={empresaLoading}
+                className="w-full bg-[#295693] text-white py-4 rounded-[2rem] font-black text-[10px] uppercase shadow-lg mt-4 hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {empresaLoading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                {empresaLoading ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
           </div>

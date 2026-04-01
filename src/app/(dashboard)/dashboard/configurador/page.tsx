@@ -2,28 +2,37 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Settings, Plus, Trash2, Save, Brain, ChevronDown, ChevronUp, Loader2, AlertCircle } from 'lucide-react';
+import { Settings, Plus, Trash2, Brain, ChevronDown, ChevronUp, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ConfiguradorSistemas() {
   const supabase = createClient();
   const [materiales, setMateriales] = useState<any[]>([]);
   const [sistemas, setSistemas] = useState<any[]>([]);
+  const [proveedores, setProveedores] = useState<any[]>([]);
   const [nombreNuevo, setNombreNuevo] = useState("");
   const [palabrasClave, setPalabrasClave] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [confirmDeleteSistema, setConfirmDeleteSistema] = useState<string | null>(null);
+  const [proveedorFiltro, setProveedorFiltro] = useState<Record<string, string>>({});
 
   const fetchData = async () => {
-    const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
+    const { data: mat } = await supabase
+      .from('materiales')
+      .select('*, proveedores(id, nombre)')
+      .order('nombre');
     const { data: sis, error } = await supabase
       .from('sistemas_maestros')
-      .select(`*, sistema_composicion (id, material_id, cantidad_por_m2, materiales (nombre, precio_venta))`);
-    
+      .select('*, sistema_composicion (id, material_id, cantidad_por_m2, materiales (nombre, precio_venta))');
+    const { data: prov } = await supabase
+      .from('proveedores')
+      .select('*')
+      .order('nombre');
+
     if (error) console.error("Error fetching:", error);
     setMateriales(mat || []);
     setSistemas(sis || []);
+    setProveedores(prov || []);
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -36,15 +45,15 @@ export default function ConfiguradorSistemas() {
     if (error) toast.error("Error: " + error.message);
     else {
       toast.success("Sistema creado");
-      setNombreNuevo(""); setPalabrasClave(""); fetchData();
+      setNombreNuevo("");
+      setPalabrasClave("");
+      fetchData();
     }
   };
 
   const eliminarSistema = async (sistemaId: string) => {
     try {
-      // Primero eliminamos la composición
       await supabase.from('sistema_composicion').delete().eq('sistema_maestro_id', sistemaId);
-      // Luego el sistema
       const { error } = await supabase.from('sistemas_maestros').delete().eq('id', sistemaId);
       if (error) throw error;
       toast.success("Sistema eliminado correctamente");
@@ -57,6 +66,7 @@ export default function ConfiguradorSistemas() {
   };
 
   const añadirMaterialASistema = async (sistemaId: string, materialId: string) => {
+    if (!materialId) return;
     const mat = materiales.find(m => m.id === materialId);
     const { error } = await supabase.from('sistema_composicion').insert([
       { sistema_maestro_id: sistemaId, material_id: materialId, cantidad_por_m2: 1, nombre_sistema: '', placa_tipo: '' }
@@ -64,7 +74,7 @@ export default function ConfiguradorSistemas() {
     if (error) {
       toast.error("No se pudo añadir: " + error.message);
     } else {
-      toast.success(`${mat.nombre} añadido a la receta`);
+      toast.success(mat?.nombre + " añadido a la receta");
       fetchData();
     }
   };
@@ -80,8 +90,15 @@ export default function ConfiguradorSistemas() {
     if (!error) { toast.success("Material quitado"); fetchData(); }
   };
 
+  const getMaterialesFiltrados = (sistemaId: string) => {
+    const filtro = proveedorFiltro[sistemaId] || '';
+    if (!filtro) return materiales;
+    return materiales.filter(m => m.proveedor_id === filtro);
+  };
+
   return (
-    <div className="p-10 text-white max-w-5xl mx-auto">
+    <div className="p-6 lg:p-10 text-white max-w-5xl mx-auto">
+
       <div className="flex items-center gap-4 mb-10">
         <div className="p-3 bg-blue-500 rounded-2xl shadow-lg shadow-blue-500/20">
           <Brain size={24} />
@@ -92,33 +109,38 @@ export default function ConfiguradorSistemas() {
         </div>
       </div>
 
-      {/* Formulario de Creación */}
-      <div className="bg-white/5 border border-white/10 p-8 rounded-3xl mb-12 backdrop-blur-sm">
-        <h2 className="text-sm font-black mb-6 flex items-center gap-2 text-blue-400 uppercase tracking-widest"><Plus size={16}/> Definir Nuevo Sistema</h2>
+      <div className="bg-white/5 border border-white/10 p-8 rounded-3xl mb-10 backdrop-blur-sm">
+        <h2 className="text-sm font-black mb-6 flex items-center gap-2 text-blue-400 uppercase tracking-widest">
+          <Plus size={16} /> Definir Nuevo Sistema
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-white/40 uppercase ml-1">Nombre del Sistema</label>
-            <input 
-              placeholder="Ej: Tabique Estándar 15mm" 
+            <input
+              placeholder="Ej: Tabique Estándar 15mm"
               className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:border-blue-500 text-white transition-all"
-              value={nombreNuevo} onChange={e => setNombreNuevo(e.target.value)}
+              value={nombreNuevo}
+              onChange={e => setNombreNuevo(e.target.value)}
             />
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-white/40 uppercase ml-1">Palabras Clave (IA)</label>
-            <input 
-              placeholder="Ej: tabique, habitaciones, pladur" 
+            <input
+              placeholder="Ej: tabique, habitaciones, pladur"
               className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl outline-none focus:border-blue-500 text-white transition-all"
-              value={palabrasClave} onChange={e => setPalabrasClave(e.target.value)}
+              value={palabrasClave}
+              onChange={e => setPalabrasClave(e.target.value)}
             />
           </div>
         </div>
-        <button onClick={crearSistema} className="mt-6 bg-blue-500 hover:bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase text-xs transition-all active:scale-95 shadow-lg shadow-blue-500/20">
+        <button
+          onClick={crearSistema}
+          className="mt-6 bg-blue-500 hover:bg-blue-600 px-8 py-4 rounded-2xl font-black uppercase text-xs transition-all active:scale-95 shadow-lg"
+        >
           Crear Sistema Maestro
         </button>
       </div>
 
-      {/* Modal confirmar borrado de sistema */}
       {confirmDeleteSistema && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl space-y-6 animate-in zoom-in-95">
@@ -126,7 +148,7 @@ export default function ConfiguradorSistemas() {
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle size={28} className="text-red-500" />
               </div>
-              <h3 className="text-2xl font-black text-zinc-900 uppercase italic">¿Eliminar Sistema?</h3>
+              <h3 className="text-2xl font-black text-zinc-900 uppercase italic">Eliminar Sistema?</h3>
               <p className="text-zinc-500 text-sm mt-2">Se eliminarán también todos los materiales de su receta. Esta acción no se puede deshacer.</p>
             </div>
             <div className="flex gap-4">
@@ -137,19 +159,25 @@ export default function ConfiguradorSistemas() {
         </div>
       )}
 
-      {/* Listado de Sistemas Maestros */}
       <div className="space-y-4">
+        {sistemas.length === 0 && (
+          <div className="text-center py-20 border-2 border-dashed border-white/10 rounded-3xl text-white/20 font-black uppercase tracking-widest">
+            Sin sistemas maestros. Crea el primero arriba.
+          </div>
+        )}
+
         {sistemas.map(s => (
-          <div key={s.id} className="bg-white rounded-[2rem] overflow-hidden shadow-2xl transition-all border border-zinc-100">
-            <div 
-              className={`p-6 cursor-pointer flex justify-between items-center transition-colors ${expandido === s.id ? 'bg-blue-50/50' : 'hover:bg-zinc-50'}`}
+          <div key={s.id} className="bg-white rounded-[2rem] overflow-hidden shadow-2xl border border-zinc-100">
+
+            <div
+              className={"p-6 cursor-pointer flex justify-between items-center transition-colors " + (expandido === s.id ? 'bg-blue-50/80' : 'hover:bg-zinc-50')}
               onClick={() => setExpandido(expandido === s.id ? null : s.id)}
             >
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-[#1e3d6b] text-white rounded-2xl"><Settings size={20}/></div>
+                <div className="p-3 bg-[#1e3d6b] text-white rounded-2xl"><Settings size={20} /></div>
                 <div>
                   <h3 className="text-xl font-black uppercase text-[#1e3d6b] tracking-tighter">{s.nombre}</h3>
-                  <div className="flex gap-2 mt-1">
+                  <div className="flex gap-2 mt-1 flex-wrap">
                     {s.palabras_clave?.map((pc: string) => (
                       <span key={pc} className="text-[9px] bg-white border border-blue-100 text-blue-500 px-2 py-0.5 rounded-full font-black uppercase tracking-tighter">{pc}</span>
                     ))}
@@ -157,31 +185,30 @@ export default function ConfiguradorSistemas() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {/* Botón eliminar sistema */}
                 <button
                   onClick={(e) => { e.stopPropagation(); setConfirmDeleteSistema(s.id); }}
                   className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                  title="Eliminar sistema"
                 >
                   <Trash2 size={18} />
                 </button>
                 <div className="text-zinc-400">{expandido === s.id ? <ChevronUp /> : <ChevronDown />}</div>
               </div>
             </div>
-            
+
             {expandido === s.id && (
-              <div className="p-8 border-t bg-zinc-50/50 space-y-6">
+              <div className="p-8 border-t border-zinc-100 bg-zinc-50/30 space-y-6">
+
                 <div>
-                  <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4">Composición y Ratios</h4>
+                  <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4">Composición y Ratios</p>
                   <div className="grid gap-3">
                     {s.sistema_composicion?.map((comp: any) => (
-                      <div key={comp.id} className="flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 group">
+                      <div key={comp.id} className="flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100">
                         <div className="flex-1">
                           <p className="font-bold text-zinc-800 text-sm">{comp.materiales?.nombre}</p>
                           <p className="text-[10px] text-zinc-400 font-bold uppercase">{comp.materiales?.precio_venta} €/unidad</p>
                         </div>
-                        <div className="flex items-center gap-3 bg-zinc-50 px-4 py-2 rounded-xl border">
-                          <input 
+                        <div className="flex items-center gap-3 bg-zinc-50 px-4 py-2 rounded-xl border border-zinc-200">
+                          <input
                             type="number" step="0.01"
                             defaultValue={comp.cantidad_por_m2}
                             onBlur={(e) => actualizarRatio(comp.id, parseFloat(e.target.value))}
@@ -190,25 +217,66 @@ export default function ConfiguradorSistemas() {
                           <span className="text-[9px] font-black text-zinc-400 uppercase tracking-tighter">Cant / m²</span>
                         </div>
                         <button onClick={() => eliminarMaterial(comp.id)} className="p-2 text-zinc-300 hover:text-red-500 transition-colors">
-                          <Trash2 size={18}/>
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     ))}
+                    {(!s.sistema_composicion || s.sistema_composicion.length === 0) && (
+                      <p className="text-zinc-400 text-sm italic text-center py-4 bg-white rounded-2xl border border-zinc-100">
+                        Sin materiales asignados aún.
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-zinc-200/50">
-                  <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2 block">Añadir material a la receta:</label>
-                  <select 
-                    className="w-full p-4 bg-white border-2 border-zinc-100 rounded-2xl outline-none focus:border-blue-500 text-zinc-600 font-bold transition-all appearance-none cursor-pointer"
-                    onChange={(e) => añadirMaterialASistema(s.id, e.target.value)}
-                    value=""
-                  >
-                    <option value="" disabled>Buscar en el catálogo de materiales...</option>
-                    {materiales.map(m => (
-                      <option key={m.id} value={m.id}>{m.nombre} — ({m.precio_coste}€)</option>
-                    ))}
-                  </select>
+                {/* AÑADIR MATERIAL — diseño fiel al mockup */}
+                <div className="pt-4 border-t border-zinc-200 space-y-3">
+                  <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">
+                    Añadir material a la receta:
+                  </p>
+
+                  {/* PASO 1 — Proveedor */}
+                  <div className="relative">
+                    <select
+                      value={proveedorFiltro[s.id] || ''}
+                      onChange={(e) => setProveedorFiltro(prev => ({ ...prev, [s.id]: e.target.value }))}
+                      className="w-full appearance-none bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-semibold text-zinc-500 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer shadow-sm"
+                    >
+                      <option value="">Seleccione proveedor</option>
+                      {proveedores.map(p => (
+                        <option key={p.id} value={p.id}>{p.nombre}</option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2">
+                      <ChevronDown size={22} className="text-blue-500" strokeWidth={2.5} />
+                    </div>
+                  </div>
+
+                  {/* PASO 2 — Material filtrado */}
+                  <div className="relative">
+                    <select
+                      className="w-full appearance-none bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm font-semibold text-zinc-500 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer shadow-sm"
+                      onChange={(e) => { if (e.target.value) añadirMaterialASistema(s.id, e.target.value); }}
+                      value=""
+                    >
+                      {!proveedorFiltro[s.id] ? (
+                        <option value="" disabled>Seleccione material (elija primero un proveedor)</option>
+                      ) : getMaterialesFiltrados(s.id).length === 0 ? (
+                        <option value="" disabled>Sin materiales para este proveedor</option>
+                      ) : (
+                        <>
+                          <option value="" disabled>Seleccione material ({getMaterialesFiltrados(s.id).length} disponibles)</option>
+                          {getMaterialesFiltrados(s.id).map(m => (
+                            <option key={m.id} value={m.id}>{m.nombre} — {m.precio_coste}€</option>
+                          ))}
+                        </>
+                      )}
+                    </select>
+                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2">
+                      <ChevronDown size={22} className="text-blue-500" strokeWidth={2.5} />
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
