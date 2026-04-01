@@ -1,12 +1,25 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, Loader2, Users, History, Save, Truck, Plus, Trash2, Search, Download, Receipt, X } from 'lucide-react';
+import { Upload, Loader2, History, Save, Truck, Plus, Trash2, Download, Receipt, X, FileText, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+interface LineaOrden {
+  materialNombre: string;
+  cantidad: number;
+  precioCoste: number;
+  subtotal: number;
+}
+interface OrdenProveedor {
+  proveedor: string;
+  lineas: LineaOrden[];
+  totalCoste: number;
+}
 
 export default function GestionPresupuestos() {
   const supabase = createClient();
@@ -15,6 +28,7 @@ export default function GestionPresupuestos() {
   const [isSaving, setIsSaving] = useState(false);
   const [clientes, setClientes] = useState<any[]>([]);
   const [misMateriales, setMisMateriales] = useState<any[]>([]);
+  const [sistemasMaestros, setSistemasMaestros] = useState<any[]>([]);
   const [clienteSeleccionado, setClienteSeleccionado] = useState<any>(null);
   const [obraNombre, setObraNombre] = useState('');
   const [partidas, setPartidas] = useState<any[]>([]);
@@ -29,7 +43,6 @@ export default function GestionPresupuestos() {
     '.-EN CASO DE ALTURA SUPERIOR A 4M INCREMENTO DEL 20% SOBRE EL PRECIO DEL SISTEMA.';
 
   const [notasAdicionales, setNotasAdicionales] = useState(NOTAS_ESTANDAR);
-
   const [showFacturaModal, setShowFacturaModal] = useState(false);
   const [datosFactura, setDatosFactura] = useState<any>({
     numero: '', fecha: '', nombre: '', direccion: '', cp: '', cif: '', email: '', subtotal: 0,
@@ -41,15 +54,384 @@ export default function GestionPresupuestos() {
       setClientes(clData || []);
       const { data: matData } = await supabase.from('materiales').select('*, proveedores(id, nombre)');
       setMisMateriales(matData || []);
+      // Cargamos sistemas maestros con su composición completa
+      const { data: sisData } = await supabase
+        .from('sistemas_maestros')
+        .select('*, sistema_composicion(*, materiales(*, proveedores(id, nombre)))');
+      setSistemasMaestros(sisData || []);
     }
     initData();
   }, [supabase]);
+
+  // ─── Motor de resolución: descripción → materiales + proveedores ──────────
+  const resolverMaterialesDePartida = (descripcion: string, medicion: number): OrdenProveedor[] => {
+    const desc = descripcion.toLowerCase().trim();
+
+    // PASO 1: Buscar en sistemas maestros por palabras clave
+    let sistemaMatch: any = null;
+    let mejorScore = 0;
+
+    for (const sistema of sistemasMaestros) {
+      const palabras: string[] = sistema.palabras_clave || [];
+      const score = palabras.filter((p: string) => desc.includes(p.toLowerCase())).length;
+      if (score > mejorScore) {
+        mejorScore = score;
+        sistemaMatch = sistema;
+      }
+    }
+
+    if (sistemaMatch && mejorScore > 0 && sistemaMatch.sistema_composicion?.length > 0) {
+      // Tenemos match con Inteligencia — usar la receta
+      const porProveedor: Record<string, OrdenProveedor> = {};
+
+      for (const comp of sistemaMatch.sistema_composicion) {
+        const mat = Array.isArray(comp.materiales) ? comp.materiales[0] : comp.materiales;
+        if (!mat) continue;
+
+        const provNombre = mat.proveedores?.nombre || 'Sin proveedor';
+        const cantidadTotal = medicion * (comp.cantidad_por_m2 || 1);
+        const precioCoste = mat.precio_coste || 0;
+        const subtotalLinea = cantidadTotal * precioCoste;
+
+        if (!porProveedor[provNombre]) {
+          porProveedor[provNombre] = { proveedor: provNombre, lineas: [], totalCoste: 0 };
+        }
+        porProveedor[provNombre].lineas.push({
+          materialNombre: mat.nombre,
+          cantidad: parseFloat(cantidadTotal.toFixed(2)),
+          precioCoste,
+          subtotal: parseFloat(subtotalLinea.toFixed(2)),
+        });
+        porProveedor[provNombre].totalCoste += subtotalLinea;
+      }
+
+      return Object.values(porProveedor);
+    }
+
+    // PASO 2: No hay match en Inteligencia — buscar material más barato en catálogo
+    const palabrasDesc = desc.split(' ').filter(p => p.length > 3);
+    const candidatos = misMateriales.filter(m => {
+      const nombreMat = m.nombre.toLowerCase();
+      return palabrasDesc.some(p => nombreMat.includes(p));
+    });
+
+    if (candidatos.length > 0) {
+      // Ordenar por precio de coste y coger el más barato
+      const masBarato = candidatos.sort((a, b) => (a.precio_coste || 0) - (b.precio_coste || 0))[0];
+      const provNombre = masBarato.proveedores?.nombre || 'Sin proveedor';
+      const subtotalLinea = medicion * (masBarato.precio_coste || 0);
+
+      return [{
+        proveedor: provNombre,
+        lineas: [{
+          materialNombre: masBarato.nombre,
+          cantidad: medicion,
+          precioCoste: masBarato.precio_coste || 0,
+          subtotal: parseFloat(subtotalLinea.toFixed(2)),
+        }],
+        totalCoste: parseFloat(subtotalLinea.toFixed(2)),
+      }];
+    }
+
+    return [];
+  };
+
+  // ─── Calcular orden de compra completa para todas las partidas ────────────
+  const calcularOrdenCompra = (): OrdenProveedor[] => {
+    const consolidado: Record<string, OrdenProveedor> = {};
+
+    for (const partida of partidas) {
+      if (!partida.descripcion || !partida.medicion) continue;
+      const ordenes = resolverMaterialesDePartida(partida.descripcion, parseFloat(partida.medicion) || 0);
+
+      for (const orden of ordenes) {
+        if (!consolidado[orden.proveedor]) {
+          consolidado[orden.proveedor] = { proveedor: orden.proveedor, lineas: [], totalCoste: 0 };
+        }
+        consolidado[orden.proveedor].lineas.push(...orden.lineas);
+        consolidado[orden.proveedor].totalCoste += orden.totalCoste;
+      }
+    }
+
+    return Object.values(consolidado);
+  };
+
+  // ─── PDF CLIENTE (plantilla ODEPLAC) ─────────────────────────────────────
+  const generarPDFCliente = (subtotal: number) => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const fechaHoy = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const AZUL       = [30, 61, 107]   as [number, number, number];
+    const NEGRO      = [0, 0, 0]       as [number, number, number];
+    const BLANCO     = [255, 255, 255] as [number, number, number];
+    const GRIS_LINEA = [200, 200, 200] as [number, number, number];
+    const AMARILLO   = [255, 255, 153] as [number, number, number];
+    const GRIS_FILA  = [248, 248, 248] as [number, number, number];
+
+    const numPresupuesto = `260${Math.floor(10 + Math.random() * 89)}`;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(32);
+    doc.setTextColor(...AZUL);
+    doc.text('O D E P L A C', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(...NEGRO);
+    doc.text('CONSTRUCCIONES EN SECO S.L.', 14, 29);
+
+    doc.setFillColor(...AZUL);
+    doc.rect(130, 12, 68, 9, 'F');
+    doc.setTextColor(...BLANCO);
+    doc.setFontSize(9);
+    doc.text('PRESUPUESTO', 164, 18, { align: 'center' });
+    doc.setTextColor(...AZUL);
+    doc.setFontSize(8.5);
+    doc.text(numPresupuesto, 195, 27, { align: 'right' });
+
+    doc.setTextColor(...NEGRO);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('Av. de la Albufera Nº 1, 7B / CP 46470 Massanassa VALENCIA', 14, 36);
+    doc.text('Teléfono: 645735319', 14, 41);
+    doc.text('E-mail: odeplac1@gmail.com', 120, 36);
+    doc.text('CIF:B70725528', 120, 41);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 200);
+    doc.text('www.odeplac.net', 162, 46);
+
+    doc.setDrawColor(...GRIS_LINEA);
+    doc.setLineWidth(0.3);
+    doc.line(14, 48, 196, 48);
+
+    doc.setFillColor(...AZUL);
+    doc.rect(14, 51, 100, 8, 'F');
+    doc.setTextColor(...BLANCO);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`PARA: ${clienteSeleccionado?.nombre?.toUpperCase() || 'xxx'}`, 17, 56.5);
+    doc.setTextColor(...AZUL);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('www.odeplac.net', 195, 56.5, { align: 'right' });
+
+    doc.setDrawColor(...AZUL);
+    doc.setLineWidth(0.5);
+    doc.setFillColor(240, 240, 240);
+    doc.roundedRect(163, 50, 32, 32, 2, 2, 'FD');
+    doc.setTextColor(160, 160, 160);
+    doc.setFontSize(5.5);
+    doc.text('QR ODEPLAC', 179, 67, { align: 'center' });
+
+    doc.setTextColor(...NEGRO);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Telefono: ${clienteSeleccionado?.telefono || ''}`, 17, 66);
+    doc.text(`Correo : ${clienteSeleccionado?.email || ''}`, 17, 71);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`CIF: ${clienteSeleccionado?.nif_cif || ''}`, 17, 77);
+    doc.text(`FECHA:  ${fechaHoy}`, 17, 83);
+    doc.text('FECHA VENCIMIENTO: 10 DÍAS', 17, 89);
+
+    const filasBase = partidas.map(p => [
+      p.descripcion?.toUpperCase() || '',
+      String(p.medicion || 0),
+      p.medicion && Number(p.total_euros) > 0 ? (Number(p.total_euros) / Number(p.medicion)).toFixed(2) : '-',
+      Number(p.total_euros) > 0 ? Number(p.total_euros).toLocaleString('es-ES', { minimumFractionDigits: 2 }) : '-',
+    ]);
+    while (filasBase.length < 9) filasBase.push(['', '0', '-', '-']);
+
+    autoTable(doc, {
+      startY: 95,
+      head: [['DESCRIPCIÓN', 'Cant.', 'Precio unitario', 'Coste']],
+      body: filasBase,
+      theme: 'plain',
+      headStyles: { fillColor: AZUL, textColor: BLANCO, fontStyle: 'bold', fontSize: 9, cellPadding: { top: 3, bottom: 3, left: 5, right: 5 } },
+      columnStyles: {
+        0: { cellWidth: 96 }, 1: { cellWidth: 20, halign: 'center' },
+        2: { cellWidth: 38, halign: 'right' }, 3: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+      },
+      styles: { fontSize: 8.5, cellPadding: { top: 5, bottom: 5, left: 5, right: 5 }, lineColor: GRIS_LINEA, lineWidth: 0.2 },
+      alternateRowStyles: { fillColor: GRIS_FILA },
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY;
+    const totalRows = [
+      { label: 'SUBTOTAL', value: subtotal > 0 ? subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 }) : '-' },
+      { label: 'IVA', value: '21,000%' },
+      { label: 'Impuesto', value: subtotal > 0 ? (subtotal * 0.21).toLocaleString('es-ES', { minimumFractionDigits: 2 }) : '-' },
+    ];
+
+    let yT = finalY + 3;
+    totalRows.forEach(row => {
+      doc.setFillColor(...AMARILLO);
+      doc.rect(120, yT, 76, 8, 'F');
+      doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.2);
+      doc.rect(120, yT, 76, 8, 'S');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...NEGRO);
+      doc.text(row.label, 124, yT + 5.5);
+      doc.text(row.value, 194, yT + 5.5, { align: 'right' });
+      yT += 8;
+    });
+
+    doc.setFillColor(...AZUL);
+    doc.rect(120, yT, 76, 11, 'F');
+    doc.setTextColor(...BLANCO); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('TOTAL', 124, yT + 7.5);
+    doc.text('€', 148, yT + 7.5);
+    doc.text(subtotal > 0 ? (subtotal * 1.21).toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €' : '-', 194, yT + 7.5, { align: 'right' });
+
+    let yNotas = yT + 20;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...NEGRO);
+    notasAdicionales.split('\n').filter(n => n.trim()).forEach(nota => {
+      const wrapped = doc.splitTextToSize(nota, 172);
+      doc.text(wrapped, 14, yNotas);
+      yNotas += wrapped.length * 3.8 + 0.8;
+    });
+
+    doc.save(`Presupuesto_Cliente_${obraNombre.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  // ─── PDF INTERNO — Orden de Compra ───────────────────────────────────────
+  const generarPDFInterno = (subtotalCliente: number) => {
+    const ordenCompra = calcularOrdenCompra();
+    const costoTotalMateriales = ordenCompra.reduce((a, b) => a + b.totalCoste, 0);
+    const margenEuros = subtotalCliente - costoTotalMateriales;
+    const margenPct = subtotalCliente > 0 ? ((margenEuros / subtotalCliente) * 100).toFixed(1) : '0';
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const fechaHoy = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    const AZUL      = [30, 61, 107]   as [number, number, number];
+    const NEGRO     = [0, 0, 0]       as [number, number, number];
+    const BLANCO    = [255, 255, 255] as [number, number, number];
+    const GRIS      = [200, 200, 200] as [number, number, number];
+    const VERDE     = [22, 163, 74]   as [number, number, number];
+    const VERDE_CLR = [240, 253, 244] as [number, number, number];
+    const ROJO      = [220, 38, 38]   as [number, number, number];
+
+    // Cabecera interna
+    doc.setFillColor(...AZUL);
+    doc.rect(0, 0, 210, 32, 'F');
+    doc.setTextColor(...BLANCO);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('ODEPLAC PRO', 14, 14);
+    doc.setFontSize(10);
+    doc.text('ORDEN DE COMPRA INTERNA — USO EXCLUSIVO ODEPLAC', 14, 21);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Obra: ${obraNombre.toUpperCase()}   |   Cliente: ${clienteSeleccionado?.nombre?.toUpperCase() || ''}   |   Fecha: ${fechaHoy}`, 14, 28);
+
+    // Aviso confidencial
+    doc.setFillColor(255, 237, 213);
+    doc.rect(14, 36, 182, 8, 'F');
+    doc.setTextColor(154, 52, 18);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text('⚠ DOCUMENTO CONFIDENCIAL — NO ENTREGAR AL CLIENTE', 105, 41.5, { align: 'center' });
+
+    let yPos = 50;
+
+    // Tabla por proveedor
+    if (ordenCompra.length === 0) {
+      doc.setTextColor(...NEGRO);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(10);
+      doc.text('No se encontraron materiales asociados a las partidas de este presupuesto.', 14, yPos);
+      yPos += 12;
+    }
+
+    for (const orden of ordenCompra) {
+      // Cabecera proveedor
+      doc.setFillColor(...AZUL);
+      doc.rect(14, yPos, 182, 9, 'F');
+      doc.setTextColor(...BLANCO);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(orden.proveedor.toUpperCase(), 18, yPos + 6.2);
+      yPos += 9;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Material', 'Cantidad', 'P. Coste', 'Subtotal']],
+        body: orden.lineas.map(l => [
+          l.materialNombre,
+          l.cantidad.toLocaleString('es-ES'),
+          `${l.precioCoste.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`,
+          `${l.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`,
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [241, 245, 249], textColor: AZUL, fontStyle: 'bold', fontSize: 8.5 },
+        styles: { fontSize: 8.5, cellPadding: 3 },
+        columnStyles: {
+          0: { cellWidth: 100 },
+          1: { cellWidth: 25, halign: 'right' },
+          2: { cellWidth: 28, halign: 'right' },
+          3: { cellWidth: 29, halign: 'right', fontStyle: 'bold' },
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY;
+
+      // Total proveedor
+      doc.setFillColor(241, 245, 249);
+      doc.rect(14, yPos, 182, 8, 'F');
+      doc.setTextColor(...AZUL);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(`TOTAL ${orden.proveedor.toUpperCase()}:`, 18, yPos + 5.5);
+      doc.text(`${orden.totalCoste.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`, 194, yPos + 5.5, { align: 'right' });
+      yPos += 14;
+
+      if (yPos > 250) { doc.addPage(); yPos = 20; }
+    }
+
+    // ── Resumen financiero final ──
+    yPos += 4;
+    doc.setDrawColor(...GRIS);
+    doc.setLineWidth(0.5);
+    doc.line(14, yPos, 196, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...NEGRO);
+    doc.text('RESUMEN FINANCIERO DE LA OBRA', 14, yPos);
+    yPos += 8;
+
+    const resumenRows = [
+      { label: 'Precio ofertado al cliente (s/IVA)', value: `${subtotalCliente.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`, color: AZUL },
+      { label: 'Coste total de materiales', value: `${costoTotalMateriales.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`, color: NEGRO },
+      { label: `Margen estimado (${margenPct}%)`, value: `${margenEuros.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`, color: margenEuros >= 0 ? VERDE : ROJO },
+    ];
+
+    resumenRows.forEach(row => {
+      doc.setFillColor(margenEuros >= 0 || row.label.includes('Precio') || row.label.includes('Coste') ? 248 : 254, 248, 248);
+      if (row.label.includes('Margen')) {
+        doc.setFillColor(...(margenEuros >= 0 ? VERDE_CLR : [254, 242, 242] as [number, number, number]));
+      }
+      doc.rect(14, yPos, 182, 10, 'F');
+      doc.setTextColor(...row.color);
+      doc.setFont('helvetica', row.label.includes('Margen') ? 'bold' : 'normal');
+      doc.setFontSize(10);
+      doc.text(row.label, 18, yPos + 7);
+      doc.setFont('helvetica', 'bold');
+      doc.text(row.value, 194, yPos + 7, { align: 'right' });
+      yPos += 11;
+    });
+
+    doc.setFontSize(7);
+    doc.setTextColor(150, 150, 150);
+    doc.setFont('helvetica', 'italic');
+    doc.text('* El margen no incluye mano de obra ni gastos indirectos.', 14, yPos + 6);
+
+    doc.save(`OrdenCompra_Interna_${obraNombre.replace(/\s+/g, '_')}.pdf`);
+  };
 
   const actualizarPartida = (index: number, campo: string, valor: any) => {
     setPartidas(prev => {
       const nuevas = [...prev];
       nuevas[index] = { ...nuevas[index], [campo]: valor };
-
       if (campo === 'descripcion') {
         const material = misMateriales.find(m =>
           m.nombre.toLowerCase() === valor.toLowerCase() ||
@@ -61,10 +443,8 @@ export default function GestionPresupuestos() {
           nuevas[index].distribuidor = material.proveedores?.nombre || 'Sin proveedor';
           nuevas[index].proveedor_id = material.proveedor_id;
           nuevas[index].total_euros = (material.precio_venta * medicion).toFixed(2);
-          toast.info(`Material detectado — ${material.proveedores?.nombre || 'Sin proveedor'}`, { duration: 2000 });
         }
       }
-
       if (campo === 'medicion' && nuevas[index].producto) {
         const material = misMateriales.find(m => m.nombre === nuevas[index].producto);
         if (material) {
@@ -114,7 +494,7 @@ export default function GestionPresupuestos() {
         iban: 'ES18 3058 2237 9927 2001 4556',
       }]);
       if (error) throw error;
-      toast.success('Factura registrada y guardada con éxito');
+      toast.success('Factura registrada con éxito');
       setShowFacturaModal(false);
     } catch (err: any) {
       toast.error('Error: ' + err.message);
@@ -122,223 +502,6 @@ export default function GestionPresupuestos() {
       setIsSaving(false);
     }
   };
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // PDF FIEL A LA PLANTILLA ODEPLAC
-  // ─────────────────────────────────────────────────────────────────────────────
-  const generarPDFPresupuesto = (subtotal: number) => {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const fechaHoy = new Date().toLocaleDateString('es-ES', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    });
-
-    const AZUL        = [30, 61, 107]   as [number, number, number];
-    const NEGRO       = [0, 0, 0]       as [number, number, number];
-    const BLANCO      = [255, 255, 255] as [number, number, number];
-    const GRIS_LINEA  = [200, 200, 200] as [number, number, number];
-    const AMARILLO    = [255, 255, 153] as [number, number, number];
-    const GRIS_FILA   = [248, 248, 248] as [number, number, number];
-
-    const numPresupuesto = `260${Math.floor(10 + Math.random() * 89)}`;
-
-    // ── 1. LOGO "O D E P L A C" ───────────────────────────────────────────────
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(32);
-    doc.setTextColor(...AZUL);
-    doc.text('O D E P L A C', 14, 22);
-
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...NEGRO);
-    doc.text('CONSTRUCCIONES EN SECO S.L.', 14, 29);
-
-    // ── 2. BANDA AZUL "PRESUPUESTO" + número ──────────────────────────────────
-    doc.setFillColor(...AZUL);
-    doc.rect(130, 12, 68, 9, 'F');
-    doc.setTextColor(...BLANCO);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PRESUPUESTO', 164, 18, { align: 'center' });
-
-    doc.setTextColor(...AZUL);
-    doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'bold');
-    doc.text(numPresupuesto, 195, 27, { align: 'right' });
-
-    // ── 3. DATOS EMPRESA ──────────────────────────────────────────────────────
-    doc.setTextColor(...NEGRO);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text('Av. de la Albufera Nº 1, 7B / CP 46470 Massanassa VALENCIA', 14, 36);
-    doc.text('Teléfono: 645735319', 14, 41);
-
-    doc.text('E-mail: odeplac1@gmail.com', 120, 36);
-    doc.text('CIF:B70725528', 120, 41);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 200);
-    doc.text('www.odeplac.net', 162, 46);
-
-    // ── 4. LÍNEA SEPARADORA ───────────────────────────────────────────────────
-    doc.setDrawColor(...GRIS_LINEA);
-    doc.setLineWidth(0.3);
-    doc.line(14, 48, 196, 48);
-
-    // ── 5. BLOQUE "PARA:" con banda azul ──────────────────────────────────────
-    doc.setFillColor(...AZUL);
-    doc.rect(14, 51, 100, 8, 'F');
-    doc.setTextColor(...BLANCO);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`PARA: ${clienteSeleccionado?.nombre?.toUpperCase() || 'xxx'}`, 17, 56.5);
-
-    // www.odeplac.net (derecha del bloque PARA)
-    doc.setTextColor(...AZUL);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text('www.odeplac.net', 195, 56.5, { align: 'right' });
-
-    // ── 6. QR placeholder ────────────────────────────────────────────────────
-    doc.setDrawColor(...AZUL);
-    doc.setLineWidth(0.5);
-    doc.setFillColor(240, 240, 240);
-    doc.roundedRect(163, 50, 32, 32, 2, 2, 'FD');
-    doc.setTextColor(160, 160, 160);
-    doc.setFontSize(5.5);
-    doc.text('QR', 179, 65, { align: 'center' });
-    doc.text('ODEPLAC', 179, 69, { align: 'center' });
-
-    // ── 7. DATOS DEL CLIENTE ─────────────────────────────────────────────────
-    doc.setTextColor(...NEGRO);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    let yC = 66;
-    doc.text(`Telefono: ${clienteSeleccionado?.telefono || ''}`, 17, yC);
-    doc.text(`Correo : ${clienteSeleccionado?.email || ''}`, 17, yC + 5);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`CIF: ${clienteSeleccionado?.nif_cif || ''}`, 17, yC + 11);
-    doc.text(`FECHA:  ${fechaHoy}`, 17, yC + 17);
-    doc.text('FECHA VENCIMIENTO: 10 DÍAS', 17, yC + 23);
-
-    // ── 8. TABLA DE PARTIDAS ─────────────────────────────────────────────────
-    // Rellenamos hasta 9 filas mínimo (como la plantilla original)
-    const filasBase = partidas.map(p => [
-      p.descripcion?.toUpperCase() || '',
-      p.medicion != null ? String(p.medicion) : '0',
-      p.medicion && Number(p.total_euros) > 0
-        ? (Number(p.total_euros) / Number(p.medicion)).toFixed(2)
-        : '-',
-      Number(p.total_euros) > 0
-        ? Number(p.total_euros).toLocaleString('es-ES', { minimumFractionDigits: 2 })
-        : '-',
-    ]);
-
-    while (filasBase.length < 9) {
-      filasBase.push(['', '0', '-', '-']);
-    }
-
-    autoTable(doc, {
-      startY: 86,
-      head: [['DESCRIPCIÓN', 'Cant.', 'Precio unitario', 'Coste']],
-      body: filasBase,
-      theme: 'plain',
-      headStyles: {
-        fillColor: AZUL,
-        textColor: BLANCO,
-        fontStyle: 'bold',
-        fontSize: 9,
-        cellPadding: { top: 3, bottom: 3, left: 5, right: 5 },
-      },
-      columnStyles: {
-        0: { cellWidth: 96 },
-        1: { cellWidth: 20, halign: 'center' },
-        2: { cellWidth: 38, halign: 'right' },
-        3: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
-      },
-      styles: {
-        fontSize: 8.5,
-        cellPadding: { top: 5, bottom: 5, left: 5, right: 5 },
-        lineColor: GRIS_LINEA,
-        lineWidth: 0.2,
-        textColor: NEGRO,
-      },
-      alternateRowStyles: { fillColor: GRIS_FILA },
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY;
-
-    // ── 9. TOTALES con fondo amarillo (como la plantilla) ─────────────────────
-    const subtotalFmt = '-';   // Subtotal sin cálculo visible (como la plantilla vacía)
-    const ivaFmt      = '21,000%';
-    const impuestoFmt = subtotal > 0
-      ? (subtotal * 0.21).toLocaleString('es-ES', { minimumFractionDigits: 2 })
-      : '-';
-    const totalFmt    = subtotal > 0
-      ? (subtotal * 1.21).toLocaleString('es-ES', { minimumFractionDigits: 2 })
-      : '-';
-
-    const totalesY = finalY + 3;
-    const totalesX = 120;
-    const totalesW = 76;
-    const rowH     = 8;
-
-    const totalRows = [
-      { label: 'SUBTOTAL', value: subtotal > 0 ? subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2 }) : '-' },
-      { label: 'IVA', value: ivaFmt },
-      { label: 'Impuesto', value: impuestoFmt },
-    ];
-
-    let yT = totalesY;
-    totalRows.forEach(row => {
-      doc.setFillColor(...AMARILLO);
-      doc.rect(totalesX, yT, totalesW, rowH, 'F');
-      doc.setDrawColor(...GRIS_LINEA);
-      doc.setLineWidth(0.2);
-      doc.rect(totalesX, yT, totalesW, rowH, 'S');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...NEGRO);
-      doc.text(row.label, totalesX + 4, yT + 5.5);
-      doc.text(row.value, totalesX + totalesW - 4, yT + 5.5, { align: 'right' });
-      yT += rowH;
-    });
-
-    // Fila TOTAL — banda azul gruesa
-    const totalRowH = 11;
-    doc.setFillColor(...AZUL);
-    doc.rect(totalesX, yT, totalesW, totalRowH, 'F');
-    doc.setTextColor(...BLANCO);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('TOTAL', totalesX + 4, yT + 7.5);
-    doc.text('€', totalesX + 28, yT + 7.5);
-    doc.text(totalFmt, totalesX + totalesW - 4, yT + 7.5, { align: 'right' });
-
-    // ── 10. NOTAS Y CONDICIONES ───────────────────────────────────────────────
-    let yNotas = yT + totalRowH + 10;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...NEGRO);
-
-    const lineasNotas = notasAdicionales.split('\n').filter(n => n.trim());
-    lineasNotas.forEach(nota => {
-      const wrapped = doc.splitTextToSize(nota, 172);
-      doc.text(wrapped, 14, yNotas);
-      yNotas += wrapped.length * 3.8 + 0.8;
-    });
-
-    // Nota resaltada final (como en la plantilla)
-    yNotas += 2;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    const notaFinal = 'NOTA: La razón por la que hay celdas resaltadas es porque falta información sobre los sistemas solicitados.';
-    const wrappedFinal = doc.splitTextToSize(notaFinal, 172);
-    doc.text(wrappedFinal, 14, yNotas);
-
-    doc.save(`Presupuesto_${obraNombre.replace(/\s+/g, '_') || 'ODEPLAC'}.pdf`);
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────────
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -350,17 +513,7 @@ export default function GestionPresupuestos() {
     try {
       const response = await fetch('/api/presupuestos', { method: 'POST', body: form });
       const data = await response.json();
-      const partidasEnriquecidas = (data.partidas || []).map((p: any) => {
-        const material = misMateriales.find(m =>
-          m.nombre.toLowerCase().includes(p.descripcion?.toLowerCase().substring(0, 10))
-        );
-        return {
-          ...p,
-          distribuidor: material?.proveedores?.nombre || p.distribuidor || '—',
-          proveedor_id: material?.proveedor_id || null,
-        };
-      });
-      setPartidas(partidasEnriquecidas);
+      setPartidas(data.partidas || []);
       setObraNombre(data.obra || 'Nueva Obra');
     } catch {
       toast.error('Error al procesar');
@@ -373,20 +526,24 @@ export default function GestionPresupuestos() {
     if (!clienteSeleccionado || partidas.length === 0) return toast.error('Faltan datos');
     setIsSaving(true);
     try {
-      const subtotal = partidas.reduce((acc, p) => acc + (Number(p.total_euros) || 0), 0);
+      const subtotal = partidas.reduce((a, p) => a + (Number(p.total_euros) || 0), 0);
       const { data: presuGuardado, error } = await supabase.from('presupuestos').insert([{
         cliente_id: clienteSeleccionado.id,
         cliente_nombre: clienteSeleccionado.nombre,
         obra: obraNombre,
-        partidas: partidas,
+        partidas,
         total: subtotal,
         notas: notasAdicionales,
         estado: 'Pendiente',
       }]).select().single();
 
       if (error) throw error;
-      generarPDFPresupuesto(subtotal);
-      toast.success('Presupuesto guardado. Descargando PDF...');
+
+      // Generar ambos PDFs
+      generarPDFCliente(subtotal);
+      setTimeout(() => generarPDFInterno(subtotal), 800);
+
+      toast.success('Presupuesto guardado. Descargando 2 PDFs...');
       prepararFactura(presuGuardado);
       setPartidas([]);
     } catch (err: any) {
@@ -395,6 +552,12 @@ export default function GestionPresupuestos() {
       setIsSaving(false);
     }
   };
+
+  // Preview de la orden de compra en pantalla
+  const ordenCompraPreview = partidas.length > 0 ? calcularOrdenCompra() : [];
+  const costoTotal = ordenCompraPreview.reduce((a, b) => a + b.totalCoste, 0);
+  const subtotalActual = partidas.reduce((a, p) => a + (Number(p.total_euros) || 0), 0);
+  const margenActual = subtotalActual - costoTotal;
 
   return (
     <div className="w-full max-w-[1400px] mx-auto p-6 lg:p-10 text-white font-sans relative">
@@ -417,14 +580,13 @@ export default function GestionPresupuestos() {
             <div className="grid grid-cols-2 gap-6 mb-8">
               <div>
                 <label className="text-[10px] font-black uppercase text-zinc-400 block mb-2">Factura Nº</label>
-                <input className="w-full bg-zinc-100 p-4 rounded-2xl font-black outline-none border-2 border-transparent focus:border-orange-500" value={datosFactura.numero} onChange={e => setDatosFactura({ ...datosFactura, numero: e.target.value })} />
+                <input className="w-full bg-zinc-100 p-4 rounded-2xl font-black outline-none" value={datosFactura.numero} onChange={e => setDatosFactura({ ...datosFactura, numero: e.target.value })} />
               </div>
               <div>
                 <label className="text-[10px] font-black uppercase text-zinc-400 block mb-2">Fecha Emisión</label>
                 <input type="date" className="w-full bg-zinc-100 p-4 rounded-2xl font-black outline-none" value={datosFactura.fecha} onChange={e => setDatosFactura({ ...datosFactura, fecha: e.target.value })} />
               </div>
               <div className="col-span-2">
-                <label className="text-[10px] font-black uppercase text-zinc-400 block mb-2">Datos del Cliente</label>
                 <div className="grid grid-cols-2 gap-4">
                   <input placeholder="Nombre" className="bg-zinc-100 p-3 rounded-xl text-sm" value={datosFactura.nombre} onChange={e => setDatosFactura({ ...datosFactura, nombre: e.target.value })} />
                   <input placeholder="CIF" className="bg-zinc-100 p-3 rounded-xl text-sm font-bold" value={datosFactura.cif} onChange={e => setDatosFactura({ ...datosFactura, cif: e.target.value })} />
@@ -458,7 +620,7 @@ export default function GestionPresupuestos() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* PANEL IZQUIERDO */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 space-y-4">
           <div className="bg-white/10 border border-white/20 rounded-3xl p-6 shadow-xl backdrop-blur-md">
             <label className="text-[10px] font-black uppercase text-blue-300 block mb-3">1. Cliente</label>
             <select
@@ -468,18 +630,50 @@ export default function GestionPresupuestos() {
             >
               <option value="">-- SELECCIONAR --</option>
               {clientes.map(c => (
-                <option key={c.id} value={c.id} className="text-black font-bold italic">{c.nombre.toUpperCase()}</option>
+                <option key={c.id} value={c.id} className="text-black">{c.nombre.toUpperCase()}</option>
               ))}
             </select>
-            <label className={`border-2 border-dashed rounded-3xl p-10 flex flex-col items-center justify-center cursor-pointer transition-all ${isUploading ? 'opacity-30' : 'hover:border-blue-400 border-white/10 bg-white/5'}`}>
+            <label className={`border-2 border-dashed rounded-3xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${isUploading ? 'opacity-30' : 'hover:border-blue-400 border-white/10 bg-white/5'}`}>
               <input type="file" className="hidden" onChange={handleFileUpload} accept=".pdf" disabled={isUploading || !clienteSeleccionado} />
-              <Upload className="text-white/20 h-10 w-10 mb-2" />
+              <Upload className="text-white/20 h-8 w-8 mb-2" />
               <span className="text-[10px] font-black uppercase text-center">Subir Medición PDF</span>
             </label>
           </div>
+
+          {/* PREVIEW ORDEN DE COMPRA */}
+          {ordenCompraPreview.length > 0 && (
+            <div className="bg-white/10 border border-white/20 rounded-3xl p-6 shadow-xl backdrop-blur-md space-y-4">
+              <p className="text-[10px] font-black uppercase text-blue-300 flex items-center gap-2">
+                <Truck size={14} /> Vista previa orden de compra
+              </p>
+              {ordenCompraPreview.map(op => (
+                <div key={op.proveedor} className="bg-white/5 rounded-2xl p-4">
+                  <p className="font-black text-white text-xs uppercase">{op.proveedor}</p>
+                  <p className="text-[10px] text-white/50">{op.lineas.length} material{op.lineas.length !== 1 ? 'es' : ''}</p>
+                  <p className="font-black text-emerald-400">{op.totalCoste.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
+                </div>
+              ))}
+              <div className="border-t border-white/10 pt-3 space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/50">Coste materiales</span>
+                  <span className="font-black text-white">{costoTotal.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-white/50">Precio cliente</span>
+                  <span className="font-black text-white">{subtotalActual.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</span>
+                </div>
+                <div className="flex justify-between text-sm pt-1 border-t border-white/10">
+                  <span className="font-black text-white/70 flex items-center gap-1"><TrendingUp size={12} /> Margen</span>
+                  <span className={`font-black text-lg ${margenActual >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {margenActual.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* PANEL DERECHO — PARTIDAS */}
+        {/* PANEL DERECHO */}
         <div className="lg:col-span-3">
           {partidas.length > 0 ? (
             <div className="bg-white text-zinc-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200">
@@ -501,10 +695,10 @@ export default function GestionPresupuestos() {
               <div className="p-8">
                 <div className="space-y-4 mb-8">
                   {partidas.map((p, i) => (
-                    <div key={i} className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 items-start group">
+                    <div key={i} className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 items-start">
                       <span className="text-zinc-300 font-bold text-xs italic pt-1">{i + 1}</span>
                       <div className="flex-1">
-                        <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Descripción / Material</label>
+                        <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Descripción / Sistema</label>
                         <input
                           list="datalist-materiales"
                           className="w-full bg-transparent border-none outline-none text-sm font-bold text-zinc-700 p-1 uppercase"
@@ -512,16 +706,21 @@ export default function GestionPresupuestos() {
                           onChange={(e) => actualizarPartida(i, 'descripcion', e.target.value)}
                           placeholder="ESCRIBE O SELECCIONA MATERIAL..."
                         />
-                        <div className="flex items-center gap-2 mt-2">
-                          <Truck size={11} className={p.distribuidor && p.distribuidor !== '—' ? 'text-blue-500' : 'text-zinc-300'} />
-                          {p.distribuidor && p.distribuidor !== '—' ? (
-                            <span className="text-[10px] text-blue-600 font-black uppercase italic tracking-tighter">
-                              PROVEEDOR: {p.distribuidor}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-zinc-300 font-bold italic">Sin proveedor asignado</span>
-                          )}
-                        </div>
+                        {p.descripcion && (
+                          <div className="flex items-center gap-2 mt-1">
+                            {(() => {
+                              const ordenes = resolverMaterialesDePartida(p.descripcion, parseFloat(p.medicion) || 1);
+                              if (ordenes.length > 0) {
+                                return ordenes.map(o => (
+                                  <span key={o.proveedor} className="text-[9px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-black uppercase">
+                                    {o.proveedor}
+                                  </span>
+                                ));
+                              }
+                              return <span className="text-[9px] text-zinc-300 italic">Sin proveedor asignado</span>;
+                            })()}
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-col gap-2">
                         <div>
@@ -529,7 +728,7 @@ export default function GestionPresupuestos() {
                           <input type="number" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value)} />
                         </div>
                         <div>
-                          <label className="text-[8px] font-black text-zinc-400 uppercase">Coste (€)</label>
+                          <label className="text-[8px] font-black text-zinc-400 uppercase">Precio cliente (€)</label>
                           <input type="number" className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]" value={p.total_euros} onChange={(e) => actualizarPartida(i, 'total_euros', e.target.value)} />
                         </div>
                       </div>
@@ -540,62 +739,45 @@ export default function GestionPresupuestos() {
                   ))}
                 </div>
 
-                {/* Resumen por proveedor */}
-                {partidas.some(p => p.distribuidor && p.distribuidor !== '—') && (
-                  <div className="mb-8 p-6 bg-blue-50 rounded-[2rem] border border-blue-100">
-                    <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                      <Truck size={14} /> Pedidos necesarios por proveedor
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {Array.from(new Set(
-                        partidas.filter(p => p.distribuidor && p.distribuidor !== '—').map(p => p.distribuidor)
-                      )).map(proveedor => {
-                        const lineas = partidas.filter(p => p.distribuidor === proveedor);
-                        const total = lineas.reduce((a, b) => a + (Number(b.total_euros) || 0), 0);
-                        return (
-                          <div key={proveedor as string} className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm">
-                            <p className="font-black text-[#295693] text-sm uppercase italic">{proveedor as string}</p>
-                            <p className="text-[10px] text-zinc-500 font-bold">{lineas.length} línea{lineas.length !== 1 ? 's' : ''}</p>
-                            <p className="font-black text-emerald-600 text-lg">{total.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
                 {/* Notas */}
                 <div className="mb-10 text-zinc-600">
                   <label className="text-[10px] font-black text-blue-500 uppercase block mb-3 italic">Notas del Presupuesto</label>
                   <textarea
                     className="w-full bg-zinc-50 border-2 border-blue-100 rounded-2xl p-4 text-xs font-bold outline-none focus:border-[#1e3d6b]"
-                    rows={6}
+                    rows={5}
                     value={notasAdicionales}
                     onChange={(e) => setNotasAdicionales(e.target.value)}
                   />
                 </div>
 
-                {/* Totales y botón guardar */}
+                {/* Totales + botón */}
                 <div className="bg-[#1e3d6b] p-8 rounded-[2.5rem] flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl">
-                  <div className="text-white text-left">
-                    <p className="text-[10px] font-black text-blue-200/50 uppercase mb-1">Subtotal (S/IVA)</p>
-                    <p className="text-4xl font-black">
-                      {partidas.reduce((a, b) => a + (Number(b.total_euros) || 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                    </p>
+                  <div className="text-white text-left space-y-1">
+                    <p className="text-[10px] font-black text-blue-200/50 uppercase">Precio cliente (S/IVA)</p>
+                    <p className="text-4xl font-black">{subtotalActual.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
+                    {costoTotal > 0 && (
+                      <p className="text-[10px] text-emerald-400 font-black">
+                        Margen estimado: {margenActual.toLocaleString('es-ES', { minimumFractionDigits: 2 })} € ({subtotalActual > 0 ? ((margenActual / subtotalActual) * 100).toFixed(1) : 0}%)
+                      </p>
+                    )}
                   </div>
-                  <button
-                    onClick={finalizarYGuardar}
-                    disabled={isSaving}
-                    className="bg-white text-[#1e3d6b] px-10 py-5 rounded-2xl font-black uppercase text-xs flex items-center justify-center gap-3 shadow-xl hover:bg-blue-50 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    {isSaving ? <Loader2 className="animate-spin" /> : <><Save size={20} /> Guardar y Generar PDF</>}
-                  </button>
+                  <div className="flex flex-col gap-3 items-end">
+                    <button
+                      onClick={finalizarYGuardar}
+                      disabled={isSaving}
+                      className="bg-white text-[#1e3d6b] px-8 py-4 rounded-2xl font-black uppercase text-xs flex items-center gap-2 shadow-xl hover:bg-blue-50 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {isSaving ? <Loader2 className="animate-spin" /> : <><Save size={18} /> Guardar y Generar PDFs</>}
+                    </button>
+                    <p className="text-[9px] text-blue-200/40 uppercase tracking-widest">Genera PDF cliente + orden de compra interna</p>
+                  </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="h-full min-h-[550px] border-2 border-dashed border-white/5 rounded-[3rem] flex items-center justify-center text-white/10 uppercase font-black text-center p-10">
-              Selecciona un cliente y sube una medición para comenzar
+            <div className="h-full min-h-[550px] border-2 border-dashed border-white/5 rounded-[3rem] flex flex-col items-center justify-center text-white/10 uppercase font-black text-center p-10 gap-4">
+              <FileText size={48} className="opacity-20" />
+              Selecciona un cliente y añade partidas para comenzar
             </div>
           )}
         </div>

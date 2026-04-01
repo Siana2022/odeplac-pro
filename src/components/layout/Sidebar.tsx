@@ -3,18 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  LayoutDashboard, 
-  Briefcase, 
-  Users, 
-  Box, 
-  Truck, 
-  Settings,
-  FileText,
-  CircleDot,
-  X,
-  Brain,
-  Ruler,
-  Wallet // Importamos el icono para Gastos
+  LayoutDashboard, Briefcase, Users, Box, Truck, Settings,
+  FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard
 } from 'lucide-react';
 
 const menuItems = [
@@ -23,9 +13,10 @@ const menuItems = [
   { name: 'Clientes', icon: Users, href: '/dashboard/clientes' },
   { name: 'Materiales', icon: Box, href: '/dashboard/materiales' },
   { name: 'Proveedores', icon: Truck, href: '/dashboard/proveedores' },
-  // NUEVO: Sección de Gastos de Material
   { name: 'Gastos Material', icon: Wallet, href: '/dashboard/gastos' },
   { name: 'Presupuestos', icon: FileText, href: '/dashboard/presupuestos' },
+  { name: 'Gestión de Cobros', icon: CreditCard, href: '/dashboard/cobros' },
+  { name: 'Rentabilidad', icon: TrendingUp, href: '/dashboard/rentabilidad' },
   { name: 'Inteligencia', icon: Brain, href: '/dashboard/configurador' },
   { name: 'Configuración', icon: Settings, href: '/dashboard/configuracion' },
   { name: 'Escáner Planos', icon: Ruler, href: '/dashboard/escanner-planos' },
@@ -61,9 +52,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
             <Link
               key={item.name}
               href={item.href}
-              onClick={() => {
-                if (onClose) onClose();
-              }}
+              onClick={() => { if (onClose) onClose(); }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
                 isActive 
                   ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/20' 
