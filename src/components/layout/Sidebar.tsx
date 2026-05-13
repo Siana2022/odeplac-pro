@@ -2,24 +2,25 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
+import {
   LayoutDashboard, Briefcase, Users, Box, Truck, Settings,
-  FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard
+  FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard, GraduationCap
 } from 'lucide-react';
 
 const menuItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-  { name: 'Pipeline (Obras)', icon: Briefcase, href: '/dashboard/obras' },
-  { name: 'Clientes', icon: Users, href: '/dashboard/clientes' },
-  { name: 'Materiales', icon: Box, href: '/dashboard/materiales' },
-  { name: 'Proveedores', icon: Truck, href: '/dashboard/proveedores' },
-  { name: 'Gastos Material', icon: Wallet, href: '/dashboard/gastos' },
-  { name: 'Presupuestos', icon: FileText, href: '/dashboard/presupuestos' },
-  { name: 'Gestión de Cobros', icon: CreditCard, href: '/dashboard/cobros' },
-  { name: 'Rentabilidad', icon: TrendingUp, href: '/dashboard/rentabilidad' },
-  { name: 'Inteligencia', icon: Brain, href: '/dashboard/configurador' },
-  { name: 'Configuración', icon: Settings, href: '/dashboard/configuracion' },
-  { name: 'Escáner Planos', icon: Ruler, href: '/dashboard/escanner-planos' },
+  { name: 'Dashboard',         icon: LayoutDashboard, href: '/dashboard' },
+  { name: 'Pipeline (Obras)',  icon: Briefcase,        href: '/dashboard/obras' },
+  { name: 'Clientes',          icon: Users,            href: '/dashboard/clientes' },
+  { name: 'Materiales',        icon: Box,              href: '/dashboard/materiales' },
+  { name: 'Proveedores',       icon: Truck,            href: '/dashboard/proveedores' },
+  { name: 'Gastos Material',   icon: Wallet,           href: '/dashboard/gastos' },
+  { name: 'Presupuestos',      icon: FileText,         href: '/dashboard/presupuestos' },
+  { name: 'Gestión de Cobros', icon: CreditCard,       href: '/dashboard/cobros' },
+  { name: 'Rentabilidad',      icon: TrendingUp,       href: '/dashboard/rentabilidad' },
+  { name: 'Inteligencia',      icon: Brain,            href: '/dashboard/configurador' },
+  { name: 'Entrenar IA',       icon: GraduationCap,    href: '/dashboard/entrenamiento' },
+  { name: 'Configuración',     icon: Settings,         href: '/dashboard/configuracion' },
+  { name: 'Escáner Planos',    icon: Ruler,            href: '/dashboard/escanner-planos' },
 ];
 
 interface SidebarProps {
