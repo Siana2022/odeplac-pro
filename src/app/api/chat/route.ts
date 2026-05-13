@@ -6,7 +6,6 @@ export const maxDuration = 60;
 
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
 
-// Palabras que indican intención de entrenamiento
 const TRAINING_TRIGGERS = [
   "aprende que", "aprende:", "recuerda que", "cuando pregunten",
   "cuando alguien pregunte", "guarda esto", "corrigelo", "corrige esto",
@@ -23,7 +22,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const rawMessages = body.messages || [];
-    const trainingMode = body.training === true; // flag explícito del cliente
+    const trainingMode = body.training === true;
 
     const normalize = (text: string) =>
       text.toLowerCase()
@@ -36,55 +35,158 @@ export async function POST(req: Request) {
     const cleanMsg = normalize(currentMsgRaw);
     const lastMsg = rawMessages.length > 1 ? normalize(rawMessages[rawMessages.length - 2].content) : "";
 
-    // Detectar si es intención de entrenamiento
     const isTraining = trainingMode || TRAINING_TRIGGERS.some(t => cleanMsg.includes(normalize(t)));
 
     // ── MODO ENTRENAMIENTO ────────────────────────────────────────────────────
     if (isTraining) {
+      // 1. Cargar catálogo completo para hacer matching
+      const { data: catalogoMateriales } = await supabase
+        .from('materiales')
+        .select('id, nombre, unidad, precio_coste');
+
+      // 2. Gemini extrae el conocimiento estructurado
       const model = genAI.getGenerativeModel({
         model: "gemini-2.0-flash",
         generationConfig: { responseMimeType: "application/json" },
       });
 
-      const extractPrompt = `El usuario quiere enseñarte un nuevo conocimiento sobre construcción en seco.
-Extrae la información y devuelve ÚNICAMENTE un JSON con esta estructura:
+      const catalogoTexto = catalogoMateriales
+        ?.slice(0, 150)
+        .map(m => `"${m.nombre}" (${m.unidad})`)
+        .join(", ") || "";
+
+      const extractPrompt = `El usuario quiere enseñarte un nuevo sistema de construcción en seco.
+Extrae la información y devuelve ÚNICAMENTE este JSON:
 {
-  "pregunta": "tema o pregunta que activa este conocimiento (conciso, ej: 'tabiquería sencilla 15mm')",
-  "respuesta": "el conocimiento completo tal como lo explicó el usuario",
-  "keywords": ["array", "de", "palabras", "clave", "para", "encontrarlo"],
-  "categoria": "una de: materiales | sistemas | precios | procesos | general"
+  "nombre": "nombre del sistema (ej: Tabiquería Sencilla 15mm)",
+  "keywords": ["tabiquería", "tabique", "sencilla", "15mm"],
+  "descripcion": "descripción breve",
+  "categoria": "materiales | sistemas | precios | procesos | general",
+  "respuesta_texto": "resumen completo del conocimiento para el chat",
+  "materiales": [
+    {
+      "descripcion_usuario": "como lo describió el usuario",
+      "cantidad_por_m2": 2.0,
+      "unidad": "ud | m2 | kg | ml | saco"
+    }
+  ]
 }
+
+CATÁLOGO REAL DE MATERIALES DISPONIBLE (usa estos nombres para hacer matching):
+${catalogoTexto}
+
+Para cada material que mencione el usuario, intenta encontrar el nombre más parecido del catálogo real.
+Si no encuentras match exacto, usa la descripción del usuario tal cual.
 
 Mensaje del usuario: "${currentMsgRaw}"`;
 
       const result = await model.generateContent(extractPrompt);
-      const text = result.response.text().replace(/```json|```/g, "").trim();
+      const text = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
 
-      let conocimiento: any;
+      let extraido: any;
       try {
-        conocimiento = JSON.parse(text);
+        extraido = JSON.parse(text);
       } catch {
-        return res("Lo siento, no he podido extraer el conocimiento correctamente. ¿Puedes reformularlo? Por ejemplo: *\"Aprende que para tabiquería sencilla necesitamos...\"*");
+        return res("No he podido procesar bien el conocimiento. ¿Puedes reformularlo?\nEj: *\"Aprende que para tabiquería sencilla necesitamos 2 placas de yeso 15mm por m², 1 montante 48mm por metro y 0.5kg de pasta\"*");
       }
 
-      const { error } = await supabase.from('ia_conocimientos').insert([{
-        pregunta: conocimiento.pregunta,
-        respuesta: conocimiento.respuesta,
-        keywords: conocimiento.keywords || [],
-        categoria: conocimiento.categoria || 'general',
+      // 3. Guardar en ia_conocimientos (siempre)
+      await supabase.from('ia_conocimientos').insert([{
+        pregunta: extraido.nombre,
+        respuesta: extraido.respuesta_texto,
+        keywords: extraido.keywords || [],
+        categoria: extraido.categoria || 'sistemas',
       }]);
 
-      if (error) {
-        console.error("Error guardando conocimiento:", error);
-        return res("Hubo un error al guardar. Inténtalo de nuevo.");
+      // 4. Intentar matching de materiales con el catálogo real
+      const materialesExtraidos: any[] = extraido.materiales || [];
+      const materialesConMatch: any[] = [];
+      const materialesSinMatch: string[] = [];
+
+      for (const matEx of materialesExtraidos) {
+        const descripNorm = normalize(matEx.descripcion_usuario);
+        const palabras = descripNorm.split(' ').filter((p: string) => p.length > 2);
+
+        // Buscar en catálogo: puntuar por cuántas palabras coinciden
+        const candidatos = (catalogoMateriales || [])
+          .map(m => ({
+            ...m,
+            score: palabras.filter((p: string) => normalize(m.nombre).includes(p)).length,
+          }))
+          .filter(m => m.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        if (candidatos.length > 0 && candidatos[0].score >= Math.max(1, Math.floor(palabras.length * 0.4))) {
+          materialesConMatch.push({
+            material_id: candidatos[0].id,
+            material_nombre: candidatos[0].nombre,
+            cantidad_por_m2: matEx.cantidad_por_m2 || 1,
+            descripcion_usuario: matEx.descripcion_usuario,
+          });
+        } else {
+          materialesSinMatch.push(matEx.descripcion_usuario);
+        }
       }
 
-      return res(`✅ **Conocimiento guardado.**\n\n**Tema:** ${conocimiento.pregunta}\n**Categoría:** ${conocimiento.categoria}\n**Keywords:** ${(conocimiento.keywords || []).join(', ')}\n\nAhora lo usaré cuando alguien pregunte sobre ello.`);
+      // 5. Crear Sistema Maestro si tenemos al menos un material del catálogo
+      let sistemaCreado = false;
+      let sistemaId: string | null = null;
+
+      if (materialesConMatch.length > 0) {
+        const { data: nuevoSistema, error: errSistema } = await supabase
+          .from('sistemas_maestros')
+          .insert([{
+            nombre: extraido.nombre,
+            palabras_clave: extraido.keywords || [],
+            descripcion: extraido.descripcion || '',
+          }])
+          .select()
+          .single();
+
+        if (!errSistema && nuevoSistema) {
+          sistemaId = nuevoSistema.id;
+
+          // Crear composición del sistema con los materiales encontrados
+          const composicion = materialesConMatch.map(m => ({
+            sistema_id: sistemaId,
+            material_id: m.material_id,
+            cantidad_por_m2: m.cantidad_por_m2,
+          }));
+
+          const { error: errComp } = await supabase
+            .from('sistema_composicion')
+            .insert(composicion);
+
+          if (!errComp) sistemaCreado = true;
+        }
+      }
+
+      // 6. Respuesta detallada
+      let respuesta = `✅ **Conocimiento guardado: ${extraido.nombre}**\n`;
+
+      if (sistemaCreado) {
+        respuesta += `\n📋 **Sistema Maestro creado** — ya está disponible en presupuestos:\n`;
+        materialesConMatch.forEach(m => {
+          respuesta += `  • ${m.material_nombre} → ${m.cantidad_por_m2} por m²\n`;
+        });
+      }
+
+      if (materialesSinMatch.length > 0) {
+        respuesta += `\n⚠️ **No encontré estos materiales en el catálogo:**\n`;
+        materialesSinMatch.forEach(m => {
+          respuesta += `  • ${m}\n`;
+        });
+        respuesta += `\n¿Están en tu catálogo de materiales? Si los añades, el sistema los usará automáticamente.`;
+      }
+
+      if (!sistemaCreado && materialesSinMatch.length === materialesExtraidos.length) {
+        respuesta += `\n💬 Guardado en el chat pero no pude crear el Sistema Maestro para presupuestos porque no encontré los materiales en tu catálogo.`;
+      }
+
+      return res(respuesta);
     }
 
     // ── MODO CONSULTA NORMAL ──────────────────────────────────────────────────
-
-    // Carga de datos en paralelo
     const [{ data: cl }, { data: ob }, { data: pr }, { data: ma }, { data: sm }, { data: conocimientos }] = await Promise.all([
       supabase.from('clientes').select('nombre'),
       supabase.from('obras').select('id, titulo, estado, clientes(nombre), obra_seguimiento(mensaje, created_at, tipo)'),
@@ -168,7 +270,7 @@ Mensaje del usuario: "${currentMsgRaw}"`;
       }
     }
 
-    // F. GEMINI — con conocimiento entrenado + contexto del catálogo
+    // F. GEMINI con conocimiento entrenado como prioridad máxima
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     const catalogoMateriales = ma?.slice(0, 120)
@@ -179,31 +281,23 @@ Mensaje del usuario: "${currentMsgRaw}"`;
       `${s.nombre}: keywords [${(s.palabras_clave || []).join(', ')}]`
     ).join("\n") || "";
 
-    // Conocimiento entrenado como prioridad máxima
     const conocimientoContext = conocimientosRelevantes.length > 0
-      ? `\n\nCONOCIMIENTO ESPECÍFICO APRENDIDO — USA ESTO COMO PRIORIDAD MÁXIMA:\n${
-          conocimientosRelevantes.map(c => `📌 Tema: ${c.pregunta}\n${c.respuesta}`).join('\n\n')
+      ? `\n\nCONOCIMIENTO ESPECÍFICO APRENDIDO — PRIORIDAD MÁXIMA:\n${
+          conocimientosRelevantes.map(c => `📌 ${c.pregunta}\n${c.respuesta}`).join('\n\n')
         }\n`
       : '';
 
-    const systemPrompt = `Eres OdeplacAI, el asistente experto de ODEPLAC PRO, empresa española de construcciones en seco (Pladur, tabiquería, falsos techos, suelos técnicos).
+    const systemPrompt = `Eres OdeplacAI, el asistente experto de ODEPLAC PRO, empresa española de construcciones en seco.
 ${conocimientoContext}
-CATÁLOGO DE MATERIALES DISPONIBLE (${numMat} materiales en total, muestra):
+CATÁLOGO DE MATERIALES (${numMat} en total, muestra):
 ${catalogoMateriales}
 
-SISTEMAS DE TRABAJO CONOCIDOS:
+SISTEMAS CONOCIDOS:
 ${sistemasList}
 
-DATOS DE LA EMPRESA:
-- Clientes: ${cl?.map(c => c.nombre).join(', ') || 'N/A'}
-- Proveedores: ${pr?.map(p => p.nombre).join(', ') || 'N/A'}
+EMPRESA: Clientes: ${cl?.map(c => c.nombre).join(', ') || 'N/A'} | Proveedores: ${pr?.map(p => p.nombre).join(', ') || 'N/A'}
 
-REGLAS:
-- Responde siempre en español
-- Sé conciso y profesional
-- Si tienes conocimiento específico aprendido, úsalo por encima de todo lo demás
-- Si piden materiales para una partida, lista los más relevantes con precios reales
-- Si no tienes datos suficientes, dilo claramente`;
+REGLAS: Responde en español, sé conciso. Usa el conocimiento aprendido con máxima prioridad. Si hay un Sistema Maestro creado para una partida, indícalo.`;
 
     const result = await model.generateContent([
       { text: systemPrompt },
@@ -214,7 +308,7 @@ REGLAS:
 
   } catch (error: any) {
     console.error("Error en chat:", error);
-    return res("Lo siento, hubo un error al procesar tu consulta. Inténtalo de nuevo.");
+    return res("Lo siento, hubo un error. Inténtalo de nuevo.");
   }
 }
 
