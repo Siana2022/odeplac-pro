@@ -26,6 +26,7 @@ export default function GestionPresupuestos() {
 
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [modoManual, setModoManual] = useState(false);
   const [clientes, setClientes] = useState<any[]>([]);
   const [misMateriales, setMisMateriales] = useState<any[]>([]);
   const [sistemasMaestros, setSistemasMaestros] = useState<any[]>([]);
@@ -281,6 +282,10 @@ export default function GestionPresupuestos() {
     ];
 
     let yT = finalY + 3;
+    if (yT + 42 > 265) {
+      doc.addPage();
+      yT = 20;
+    }
     totalRows.forEach(row => {
       doc.setFillColor(...AMARILLO);
       doc.rect(120, yT, 76, 8, 'F');
@@ -465,10 +470,19 @@ export default function GestionPresupuestos() {
           nuevas[index].total_euros = (material.precio_venta * medicion).toFixed(2);
         }
       }
-      if (campo === 'medicion' && nuevas[index].producto) {
-        const material = misMateriales.find(m => m.nombre === nuevas[index].producto);
-        if (material) {
-          nuevas[index].total_euros = (material.precio_venta * (parseFloat(valor) || 0)).toFixed(2);
+      if (campo === 'precio_unitario') {
+        const precioUnit = parseFloat(valor) || 0;
+        const medicion = parseFloat(nuevas[index].medicion) || 0;
+        nuevas[index].total_euros = (precioUnit * medicion).toFixed(2);
+      }
+      if (campo === 'medicion') {
+        if (nuevas[index].precio_unitario) {
+          nuevas[index].total_euros = ((parseFloat(valor) || 0) * (parseFloat(nuevas[index].precio_unitario) || 0)).toFixed(2);
+        } else if (nuevas[index].producto) {
+          const material = misMateriales.find(m => m.nombre === nuevas[index].producto);
+          if (material) {
+            nuevas[index].total_euros = (material.precio_venta * (parseFloat(valor) || 0)).toFixed(2);
+          }
         }
       }
       return nuevas;
@@ -533,10 +547,20 @@ export default function GestionPresupuestos() {
     try {
       const response = await fetch('/api/presupuestos', { method: 'POST', body: form });
       const data = await response.json();
+      if (!response.ok || data.error) {
+        toast.error(`Error procesando PDF: ${data.error || 'Respuesta inválida'}. Continúa manualmente.`, { duration: 5000 });
+        setPartidas([{ item: 1, descripcion: '', medicion: 0, precio_unitario: 0, total_euros: 0, distribuidor: '' }]);
+        setObraNombre('Nueva Obra');
+        setModoManual(true);
+        return;
+      }
       setPartidas(data.partidas || []);
       setObraNombre(data.obra || 'Nueva Obra');
-    } catch {
-      toast.error('Error al procesar');
+    } catch (err: any) {
+      toast.error('El PDF no pudo procesarse. Puedes continuar añadiendo partidas manualmente.', { duration: 5000 });
+      setPartidas([{ item: 1, descripcion: '', medicion: 0, precio_unitario: 0, total_euros: 0, distribuidor: '' }]);
+      setObraNombre('Nueva Obra');
+      setModoManual(true);
     } finally {
       setIsUploading(false);
     }
@@ -547,12 +571,21 @@ export default function GestionPresupuestos() {
     setIsSaving(true);
     try {
       const subtotal = partidas.reduce((a, p) => a + (Number(p.total_euros) || 0), 0) + (manoDeObra.coste || 0);
+      const partidasParaGuardar = manoDeObra.coste > 0
+        ? [...partidas, {
+            item: partidas.length + 1,
+            descripcion: `MANO DE OBRA${manoDeObra.descripcion ? ': ' + manoDeObra.descripcion : ''}`,
+            medicion: 1,
+            precio_unitario: manoDeObra.coste,
+            total_euros: manoDeObra.coste,
+            es_mano_de_obra: true,
+          }]
+        : [...partidas];
       const { data: presuGuardado, error } = await supabase.from('presupuestos').insert([{
         cliente_id: clienteSeleccionado.id,
         cliente_nombre: clienteSeleccionado.nombre,
         obra: obraNombre,
-        partidas,
-        mano_de_obra: manoDeObra,
+        partidas: partidasParaGuardar,
         total: subtotal,
         notas: notasAdicionales,
         estado: 'Pendiente',
@@ -660,6 +693,17 @@ export default function GestionPresupuestos() {
               <Upload className="text-white/20 h-8 w-8 mb-2" />
               <span className="text-[10px] font-black uppercase text-center">Subir Medición PDF</span>
             </label>
+            <button
+              onClick={() => {
+                setPartidas([{ item: 1, descripcion: '', medicion: 0, precio_unitario: 0, total_euros: 0, distribuidor: '' }]);
+                setObraNombre('Nueva Obra');
+                setModoManual(true);
+              }}
+              disabled={!clienteSeleccionado}
+              className="mt-3 w-full bg-[#1e3d6b]/60 border border-white/20 rounded-2xl py-3 text-[10px] font-black uppercase text-white/70 hover:bg-[#1e3d6b] hover:text-white transition-all disabled:opacity-30"
+            >
+              + Crear sin PDF (manual)
+            </button>
           </div>
 
           {/* PREVIEW ORDEN DE COMPRA */}
@@ -750,8 +794,20 @@ export default function GestionPresupuestos() {
                           <input type="number" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value)} />
                         </div>
                         <div>
-                          <label className="text-[8px] font-black text-zinc-400 uppercase">Precio cliente (€)</label>
-                          <input type="number" className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]" value={p.total_euros} onChange={(e) => actualizarPartida(i, 'total_euros', e.target.value)} />
+                          <label className="text-[8px] font-black text-zinc-400 uppercase">Precio unitario (€/m²)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]"
+                            value={p.precio_unitario || ''}
+                            onChange={(e) => actualizarPartida(i, 'precio_unitario', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-zinc-400 uppercase">Total (€)</label>
+                          <p className="w-24 text-right font-black text-sm text-zinc-600 py-1.5">
+                            {Number(p.total_euros || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                          </p>
                         </div>
                       </div>
                       <button onClick={() => setPartidas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 pt-6">

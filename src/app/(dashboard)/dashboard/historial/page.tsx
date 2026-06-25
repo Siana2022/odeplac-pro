@@ -66,11 +66,29 @@ export default function HistorialPresupuestos() {
     setPartidasEditadas(prev => {
       const nuevas = [...prev];
       nuevas[index] = { ...nuevas[index], [campo]: valor };
+      if (campo === 'medicion' && nuevas[index].precio_unitario) {
+        nuevas[index].total_euros = ((parseFloat(valor) || 0) * (parseFloat(nuevas[index].precio_unitario) || 0)).toFixed(2);
+      }
       return nuevas;
     });
   };
 
-  // ── Recalcular total al editar precio ────────────────────────────────────
+  // ── Actualizar precio unitario y recalcular total ─────────────────────────
+  const actualizarPrecioUnitario = (index: number, valor: string) => {
+    setPartidasEditadas(prev => {
+      const nuevas = [...prev];
+      const precioUnit = parseFloat(valor) || 0;
+      const medicion = parseFloat(nuevas[index].medicion) || 0;
+      nuevas[index] = {
+        ...nuevas[index],
+        precio_unitario: valor,
+        total_euros: (precioUnit * medicion).toFixed(2),
+      };
+      return nuevas;
+    });
+  };
+
+  // ── Recalcular total al editar precio (legacy, kept for compatibility) ───
   const actualizarPrecio = (index: number, valor: string) => {
     setPartidasEditadas(prev => {
       const nuevas = [...prev];
@@ -355,6 +373,10 @@ export default function HistorialPresupuestos() {
 
     const AMARILLO = [255, 255, 153] as [number, number, number];
     let yT = finalY + 3;
+    if (yT + 42 > 265) {
+      doc.addPage();
+      yT = 20;
+    }
 
     filasTotales.forEach(fila => {
       doc.setFillColor(...AMARILLO);
@@ -597,7 +619,9 @@ export default function HistorialPresupuestos() {
                           <th className="py-2 text-left">Descripción del Sistema</th>
                           <th className="py-2 text-left w-28">OFERTAMOS (título)</th>
                           <th className="py-2 text-right w-20">Medición</th>
-                          <th className="py-2 px-3 text-right w-24">Importe €</th>
+                          <th className="py-2 text-right w-20">€/m²</th>
+                          <th className="py-2 px-3 text-right w-24">Total €</th>
+                          <th className="py-2 w-8"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100">
@@ -634,19 +658,37 @@ export default function HistorialPresupuestos() {
                                 className="w-full text-xs font-bold text-zinc-700 border border-zinc-200 rounded-lg p-2 text-right outline-none focus:border-blue-400"
                               />
                             </td>
-                            <td className="py-2 px-3">
+                            <td className="py-2 pr-2">
                               <input
                                 type="number"
                                 step="0.01"
-                                value={p.total_euros || ''}
-                                onChange={(e) => actualizarPrecio(i, e.target.value)}
+                                value={p.precio_unitario || (p.medicion > 0 ? (parseFloat(p.total_euros || 0) / parseFloat(p.medicion)).toFixed(2) : '')}
+                                onChange={(e) => actualizarPrecioUnitario(i, e.target.value)}
                                 className="w-full text-xs font-black text-[#1e3d6b] border border-blue-200 rounded-lg p-2 text-right outline-none focus:border-blue-500 bg-blue-50"
                               />
+                            </td>
+                            <td className="py-2 px-3 text-right text-xs font-black text-zinc-600">
+                              {parseFloat(p.total_euros || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2 px-2">
+                              <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500">
+                                <Trash2 size={14} />
+                              </button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+
+                    {/* Botón añadir partida */}
+                    <div className="px-4 py-2 border-t border-zinc-100">
+                      <button
+                        onClick={() => setPartidasEditadas(prev => [...prev, { item: prev.length + 1, descripcion: '', medicion: 0, precio_unitario: '', total_euros: '0', ofertamos: '', detalle_tecnico: '' }])}
+                        className="flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase"
+                      >
+                        <Plus size={12} /> Añadir partida
+                      </button>
+                    </div>
 
                     {/* Resumen total en edición */}
                     <div className="bg-[#1e3d6b] px-6 py-3 flex justify-between items-center">
