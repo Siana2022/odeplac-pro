@@ -40,6 +40,7 @@ export default function HistorialPresupuestos() {
   // ── Estado para edición de partidas ──────────────────────────────────────
   const [editandoPartidas, setEditandoPartidas] = useState(false);
   const [partidasEditadas, setPartidasEditadas] = useState<any[]>([]);
+  const [numeroPresupuesto, setNumeroPresupuesto] = useState('');
 
   const fetchHistorial = async () => {
     setLoading(true);
@@ -59,6 +60,7 @@ export default function HistorialPresupuestos() {
     setPartidasEditadas(JSON.parse(JSON.stringify(p.partidas_json || [])));
     setEditandoPartidas(false);
     setEditandoNombre(false);
+    setNumeroPresupuesto('');
   };
 
   // ── Actualizar campo de una partida en el estado local ───────────────────
@@ -214,7 +216,7 @@ export default function HistorialPresupuestos() {
     const fechaHoy = new Date().toLocaleDateString('es-ES', {
       day: '2-digit', month: '2-digit', year: 'numeric',
     });
-    const numPresupuesto = `260${Math.floor(10 + Math.random() * 89)}`;
+    const numPresupuesto = numeroPresupuesto.trim() || `260${Math.floor(10 + Math.random() * 89)}`;
 
     // ── 1. CABECERA: "O D E P L A C" al estilo Excel ─────────────────────
     doc.setFont('helvetica', 'bold');
@@ -482,6 +484,16 @@ export default function HistorialPresupuestos() {
                     </button>
                   </div>
                 )}
+                <div className="flex items-center gap-2 mt-2">
+                  <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest whitespace-nowrap">Nº Presupuesto:</label>
+                  <input
+                    className="bg-zinc-100 border border-zinc-200 rounded-lg px-3 py-1 text-sm font-black text-[#1e3d6b] outline-none focus:border-[#1e3d6b] w-28"
+                    value={numeroPresupuesto}
+                    onChange={(e) => setNumeroPresupuesto(e.target.value)}
+                    placeholder="26001"
+                  />
+                  <span className="text-[9px] text-zinc-400 italic">Para el PDF</span>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">

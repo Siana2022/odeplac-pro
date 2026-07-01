@@ -43,6 +43,7 @@ export default function GestionPresupuestos() {
     '.-No se incluye apertura de huecos. No se incluyen refuerzos para instalación de mobiliario, sanitarios.\n' +
     '.-EN CASO DE ALTURA SUPERIOR A 4M INCREMENTO DEL 20% SOBRE EL PRECIO DEL SISTEMA.';
 
+  const [numeroPresupuesto, setNumeroPresupuesto] = useState('');
   const [manoDeObra, setManoDeObra] = useState<{ descripcion: string; coste: number }>({ descripcion: '', coste: 0 });
   const [notasAdicionales, setNotasAdicionales] = useState(NOTAS_ESTANDAR);
   const [showFacturaModal, setShowFacturaModal] = useState(false);
@@ -170,7 +171,7 @@ export default function GestionPresupuestos() {
     const AMARILLO   = [255, 255, 153] as [number, number, number];
     const GRIS_FILA  = [248, 248, 248] as [number, number, number];
 
-    const numPresupuesto = `260${Math.floor(10 + Math.random() * 89)}`;
+    const numPresupuesto = numeroPresupuesto.trim() || `260${Math.floor(10 + Math.random() * 89)}`;
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(32);
@@ -743,16 +744,28 @@ export default function GestionPresupuestos() {
         <div className="lg:col-span-3">
           {partidas.length > 0 ? (
             <div className="bg-white text-zinc-900 rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200">
-              <div className="bg-zinc-100 p-8 border-b flex justify-between items-center">
-                <input
-                  className="bg-transparent border-b-2 border-[#1e3d6b]/20 font-black text-2xl text-[#1e3d6b] outline-none w-2/3 uppercase italic"
-                  value={obraNombre}
-                  onChange={(e) => setObraNombre(e.target.value)}
-                  placeholder="Nombre de la obra"
-                />
+              <div className="bg-zinc-100 p-8 border-b flex justify-between items-center gap-4">
+                <div className="flex-1 flex flex-col gap-2">
+                  <input
+                    className="bg-transparent border-b-2 border-[#1e3d6b]/20 font-black text-2xl text-[#1e3d6b] outline-none w-full uppercase italic"
+                    value={obraNombre}
+                    onChange={(e) => setObraNombre(e.target.value)}
+                    placeholder="Nombre de la obra"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest whitespace-nowrap">Nº Presupuesto:</label>
+                    <input
+                      className="bg-white border border-zinc-200 rounded-lg px-3 py-1.5 text-sm font-black text-[#1e3d6b] outline-none focus:border-[#1e3d6b] w-32"
+                      value={numeroPresupuesto}
+                      onChange={(e) => setNumeroPresupuesto(e.target.value)}
+                      placeholder="26001"
+                    />
+                    <span className="text-[9px] text-zinc-400 italic">Si lo dejas vacío se genera automático</span>
+                  </div>
+                </div>
                 <button
                   onClick={() => setPartidas(prev => [...prev, { item: prev.length + 1, descripcion: '', medicion: 0, total_euros: 0, distribuidor: '' }])}
-                  className="bg-[#1e3d6b] text-white px-5 py-3 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase"
+                  className="bg-[#1e3d6b] text-white px-5 py-3 rounded-xl flex items-center gap-2 text-[10px] font-black uppercase shrink-0"
                 >
                   <Plus size={16} /> Añadir Línea
                 </button>
