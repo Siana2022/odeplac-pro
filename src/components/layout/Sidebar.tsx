@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Briefcase, Users, Box, Truck, Settings,
-  FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard, GraduationCap
+  FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard, GraduationCap,
+  Clock, Send
 } from 'lucide-react';
 
 const menuItems = [
@@ -15,6 +16,8 @@ const menuItems = [
   { name: 'Proveedores',       icon: Truck,            href: '/dashboard/proveedores' },
   { name: 'Gastos Material',   icon: Wallet,           href: '/dashboard/gastos' },
   { name: 'Presupuestos',      icon: FileText,         href: '/dashboard/presupuestos' },
+  { name: 'Pendientes',        icon: Clock,            href: '/dashboard/pendientes' },
+  { name: 'Enviados',          icon: Send,             href: '/dashboard/enviados' },
   { name: 'Gestión de Cobros', icon: CreditCard,       href: '/dashboard/cobros' },
   { name: 'Rentabilidad',      icon: TrendingUp,       href: '/dashboard/rentabilidad' },
   { name: 'Inteligencia',      icon: Brain,            href: '/dashboard/configurador' },

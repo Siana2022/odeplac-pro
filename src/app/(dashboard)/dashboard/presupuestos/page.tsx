@@ -582,25 +582,23 @@ export default function GestionPresupuestos() {
             es_mano_de_obra: true,
           }]
         : [...partidas];
-      const { data: presuGuardado, error } = await supabase.from('presupuestos').insert([{
-        cliente_id: clienteSeleccionado.id,
+
+      const { error } = await supabase.from('presupuestos_generados').insert([{
         cliente_nombre: clienteSeleccionado.nombre,
-        obra: obraNombre,
-        partidas: partidasParaGuardar,
-        total: subtotal,
-        notas: notasAdicionales,
-        estado: 'Pendiente',
-      }]).select().single();
+        obra_nombre: obraNombre || 'Obra sin nombre',
+        partidas_json: partidasParaGuardar,
+        total_materiales: subtotal,
+        estado: 'pendiente',
+      }]);
 
       if (error) throw error;
 
-      // Generar ambos PDFs
-      generarPDFCliente(subtotal);
-      setTimeout(() => generarPDFInterno(subtotal), 800);
-
-      toast.success('Presupuesto guardado. Descargando 2 PDFs...');
-      prepararFactura(presuGuardado);
+      toast.success('Presupuesto guardado en Pendientes ✓');
       setPartidas([]);
+      setObraNombre('');
+      setNotasAdicionales('');
+      setManoDeObra({ descripcion: '', coste: 0 });
+      setNumeroPresupuesto('');
     } catch (err: any) {
       toast.error('Error: ' + err.message);
     } finally {
@@ -889,9 +887,9 @@ export default function GestionPresupuestos() {
                       disabled={isSaving}
                       className="bg-white text-[#1e3d6b] px-8 py-4 rounded-2xl font-black uppercase text-xs flex items-center gap-2 shadow-xl hover:bg-blue-50 active:scale-95 transition-all disabled:opacity-50"
                     >
-                      {isSaving ? <Loader2 className="animate-spin" /> : <><Save size={18} /> Guardar y Generar PDFs</>}
+                      {isSaving ? <Loader2 className="animate-spin" /> : <><Save size={18} /> Guardar en Pendientes</>}
                     </button>
-                    <p className="text-[9px] text-blue-200/40 uppercase tracking-widest">Genera PDF cliente + orden de compra interna</p>
+                    <p className="text-[9px] text-blue-200/40 uppercase tracking-widest">El presupuesto quedará en Pendientes para revisión</p>
                   </div>
                 </div>
               </div>
