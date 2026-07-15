@@ -398,22 +398,28 @@ export default function PendientesPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-white border-b">
                       <tr className="text-zinc-400 text-[10px] font-black uppercase tracking-widest">
-                        <th className="py-2 px-4 text-left w-10">Nº</th>
+                        <th className="py-2 px-4 text-left w-8">Nº</th>
                         <th className="py-2 text-left">Descripción</th>
-                        <th className="py-2 text-right">Medición</th>
-                        <th className="py-2 px-4 text-right">Importe</th>
+                        <th className="py-2 text-right w-20">Medición</th>
+                        <th className="py-2 text-right w-20">€/m²</th>
+                        <th className="py-2 px-4 text-right w-28">Importe</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-50 text-zinc-800">
                       {seleccionado.partidas_json?.map((p: any, i: number) => (
                         <tr key={i} className="hover:bg-zinc-50/50">
-                          <td className="py-3 px-4 font-bold text-zinc-300">{p.item || i + 1}</td>
+                          <td className="py-3 px-4 font-bold text-zinc-300 text-xs">{p.item || i + 1}</td>
                           <td className="py-3">
-                            <p className="font-bold leading-tight">{p.descripcion}</p>
-                            <span className="text-[10px] uppercase font-black text-blue-500 tracking-tighter">{p.tipo} {p.placa ? `| ${p.placa}` : ''}</span>
-                            {p.ofertamos && <p className="text-[10px] text-zinc-500 mt-0.5 italic">OFERTAMOS: {p.ofertamos}</p>}
+                            {p.ofertamos && <p className="text-[10px] font-black text-blue-500 uppercase tracking-tighter mb-0.5">{p.ofertamos}</p>}
+                            <p className="font-bold leading-snug text-sm">{p.descripcion}</p>
+                            {p.detalle_tecnico && <p className="text-[10px] text-zinc-400 mt-0.5">{p.detalle_tecnico}</p>}
                           </td>
-                          <td className="py-3 text-right font-bold">{p.medicion} m²</td>
+                          <td className="py-3 text-right font-bold text-sm">{p.medicion} m²</td>
+                          <td className="py-3 text-right text-sm text-zinc-500 font-bold">
+                            {parseFloat(p.medicion) > 0
+                              ? ((parseFloat(p.precio_unitario) || (parseFloat(p.total_euros || '0') / parseFloat(p.medicion))).toFixed(2)) + ' €'
+                              : '—'}
+                          </td>
                           <td className="py-3 px-4 text-right font-black text-[#1e3d6b]">
                             {parseFloat(p.total_euros) > 0 ? `${parseFloat(p.total_euros).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €` : '—'}
                           </td>
@@ -422,56 +428,45 @@ export default function PendientesPage() {
                     </tbody>
                   </table>
                 ) : (
-                  <div className="max-h-[500px] overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-blue-50 border-b sticky top-0">
-                        <tr className="text-blue-600 text-[10px] font-black uppercase tracking-widest">
-                          <th className="py-2 px-3 text-left w-8">#</th>
-                          <th className="py-2 text-left">Descripción</th>
-                          <th className="py-2 text-left w-28">OFERTAMOS</th>
-                          <th className="py-2 text-right w-20">Medición</th>
-                          <th className="py-2 text-right w-20">€/m²</th>
-                          <th className="py-2 px-3 text-right w-24">Total €</th>
-                          <th className="py-2 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {partidasEditadas.map((p: any, i: number) => (
-                          <tr key={i} className="bg-white hover:bg-blue-50/30 transition-colors">
-                            <td className="py-2 px-3 text-zinc-300 font-bold text-xs">{i + 1}</td>
-                            <td className="py-2 pr-2">
-                              <textarea value={p.descripcion || ''} onChange={(e) => actualizarPartida(i, 'descripcion', e.target.value)} rows={2} className="w-full text-xs font-bold text-zinc-700 border border-zinc-200 rounded-lg p-2 outline-none focus:border-blue-400 resize-none" />
-                              <input value={p.detalle_tecnico || ''} onChange={(e) => actualizarPartida(i, 'detalle_tecnico', e.target.value)} placeholder="Detalle técnico..." className="w-full text-[10px] text-zinc-400 border border-zinc-100 rounded-lg p-1.5 mt-1 outline-none focus:border-blue-300" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input value={p.ofertamos || ''} onChange={(e) => actualizarPartida(i, 'ofertamos', e.target.value)} placeholder="Ej: TABIQUE SENCILLO..." className="w-full text-[10px] font-bold text-blue-700 border border-blue-100 rounded-lg p-1.5 outline-none focus:border-blue-400 bg-blue-50" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input type="number" value={p.medicion || ''} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value)} className="w-full text-xs font-bold text-zinc-700 border border-zinc-200 rounded-lg p-2 text-right outline-none focus:border-blue-400" />
-                            </td>
-                            <td className="py-2 pr-2">
-                              <input type="number" step="0.01" value={p.precio_unitario || (p.medicion > 0 ? (parseFloat(p.total_euros || 0) / parseFloat(p.medicion)).toFixed(2) : '')} onChange={(e) => actualizarPrecioUnitario(i, e.target.value)} className="w-full text-xs font-black text-[#1e3d6b] border border-blue-200 rounded-lg p-2 text-right outline-none focus:border-blue-500 bg-blue-50" />
-                            </td>
-                            <td className="py-2 px-3 text-right text-xs font-black text-zinc-600">
-                              {parseFloat(p.total_euros || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2 px-2">
-                              <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="px-4 py-2 border-t border-zinc-100">
-                      <button onClick={() => setPartidasEditadas(prev => [...prev, { item: prev.length + 1, descripcion: '', medicion: 0, precio_unitario: '', total_euros: '0', ofertamos: '', detalle_tecnico: '' }])} className="flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase">
-                        <Plus size={12} /> Añadir partida
-                      </button>
-                    </div>
-                    <div className="bg-[#1e3d6b] px-6 py-3 flex justify-between items-center">
+                  <div className="max-h-[600px] overflow-y-auto p-4 space-y-3 bg-zinc-50">
+                    {partidasEditadas.map((p: any, i: number) => (
+                      <div key={i} className="bg-white border border-zinc-100 rounded-2xl p-4 shadow-sm">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest shrink-0">Ofertamos:</span>
+                          <input value={p.ofertamos || ''} onChange={(e) => actualizarPartida(i, 'ofertamos', e.target.value)} placeholder="Ej: TABIQUE SENCILLO 48H..." className="flex-1 text-sm font-black text-blue-700 border-b border-blue-100 outline-none focus:border-blue-400 bg-transparent pb-0.5" />
+                          <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 shrink-0 ml-2"><Trash2 size={14} /></button>
+                        </div>
+                        <textarea
+                          value={p.descripcion || ''}
+                          onChange={(e) => actualizarPartida(i, 'descripcion', e.target.value)}
+                          onInput={(e) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+                          placeholder="Descripción del trabajo..."
+                          className="w-full text-sm font-bold text-zinc-700 border border-zinc-200 rounded-xl p-3 outline-none focus:border-blue-400 resize-none mb-2"
+                          style={{ minHeight: '56px', overflow: 'hidden' }}
+                        />
+                        <input value={p.detalle_tecnico || ''} onChange={(e) => actualizarPartida(i, 'detalle_tecnico', e.target.value)} placeholder="Detalle técnico (opcional)..." className="w-full text-[11px] text-zinc-400 border border-zinc-100 rounded-xl p-2 outline-none focus:border-blue-200 mb-3" />
+                        <div className="flex gap-4 items-end">
+                          <div>
+                            <label className="text-[9px] font-black text-zinc-400 uppercase block mb-1">Medición</label>
+                            <input type="text" inputMode="decimal" value={p.medicion || ''} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value.replace(',', '.'))} className="w-24 border border-zinc-200 rounded-lg p-2 text-right text-sm font-bold text-zinc-700 outline-none focus:border-blue-400" />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-zinc-400 uppercase block mb-1">€/m²</label>
+                            <input type="text" inputMode="decimal" value={p.precio_unitario || (parseFloat(p.medicion) > 0 ? (parseFloat(p.total_euros || '0') / parseFloat(p.medicion)).toFixed(2) : '')} onChange={(e) => actualizarPrecioUnitario(i, e.target.value.replace(',', '.'))} className="w-24 border border-blue-200 rounded-lg p-2 text-right text-sm font-black text-[#1e3d6b] outline-none focus:border-blue-500 bg-blue-50" />
+                          </div>
+                          <div className="flex-1 text-right">
+                            <label className="text-[9px] font-black text-zinc-400 uppercase block mb-1">Total €</label>
+                            <p className="text-sm font-black text-zinc-700 py-2">{parseFloat(p.total_euros || '0').toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={() => setPartidasEditadas(prev => [...prev, { item: prev.length + 1, descripcion: '', medicion: 0, precio_unitario: '', total_euros: '0', ofertamos: '', detalle_tecnico: '' }])} className="flex items-center gap-1.5 text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase px-2">
+                      <Plus size={12} /> Añadir partida
+                    </button>
+                    <div className="bg-[#1e3d6b] px-6 py-3 rounded-xl flex justify-between items-center">
                       <span className="text-white/60 text-[10px] font-black uppercase">Total actualizado</span>
-                      <span className="text-white font-black text-lg">
-                        {partidasEditadas.reduce((a, p) => a + (parseFloat(p.total_euros) || 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                      </span>
+                      <span className="text-white font-black text-lg">{partidasEditadas.reduce((a, p) => a + (parseFloat(p.total_euros) || 0), 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</span>
                     </div>
                   </div>
                 )}

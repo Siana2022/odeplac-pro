@@ -802,16 +802,16 @@ export default function GestionPresupuestos() {
                       <div className="flex flex-col gap-2">
                         <div>
                           <label className="text-[8px] font-black text-zinc-400 uppercase">Medición</label>
-                          <input type="number" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value)} />
+                          <input type="text" inputMode="decimal" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value.replace(',', '.'))} />
                         </div>
                         <div>
                           <label className="text-[8px] font-black text-zinc-400 uppercase">Precio unitario (€/m²)</label>
                           <input
-                            type="number"
-                            step="0.01"
+                            type="text"
+                            inputMode="decimal"
                             className="w-24 bg-white border border-blue-200 rounded-lg p-1.5 text-right font-black text-[#1e3d6b]"
                             value={p.precio_unitario || ''}
-                            onChange={(e) => actualizarPartida(i, 'precio_unitario', e.target.value)}
+                            onChange={(e) => actualizarPartida(i, 'precio_unitario', e.target.value.replace(',', '.'))}
                           />
                         </div>
                         <div>
@@ -847,9 +847,8 @@ export default function GestionPresupuestos() {
                     <div className="w-36">
                       <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Coste (€)</label>
                       <input
-                        type="number"
-                        min={0}
-                        step={0.01}
+                        type="text"
+                        inputMode="decimal"
                         className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 text-right font-black text-[#1e3d6b] outline-none focus:border-[#1e3d6b]"
                         value={manoDeObra.coste || ''}
                         placeholder="0,00"

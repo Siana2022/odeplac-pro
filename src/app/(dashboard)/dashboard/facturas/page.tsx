@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Download, Search, Loader2, Undo2, Receipt, AlertCircle, Calendar, ChevronDown, Plus, X } from 'lucide-react';
+import { Download, Search, Loader2, Undo2, Receipt, AlertCircle, Calendar, ChevronDown, Plus, X, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,10 +37,10 @@ export default function FacturasPage() {
     cliente_cif: '',
     cliente_direccion: '',
     obra: '',
-    concepto: '',
-    subtotal: '',
     tipo: 'Abono',
   });
+  const LINEAS_INIT = [{ descripcion: '', medicion: '1', precio: '' }];
+  const [lineasFactura, setLineasFactura] = useState(LINEAS_INIT);
 
   useEffect(() => {
     fetchFacturas();
@@ -76,16 +76,37 @@ export default function FacturasPage() {
   );
 
   // ── Guardar abono / factura manual ───────────────────────────────
+  const resetModal = () => {
+    setShowAbonoModal(false);
+    setAbonoData({ numero_factura: '', fecha_emision: new Date().toISOString().split('T')[0], cliente_nombre: '', cliente_cif: '', cliente_direccion: '', obra: '', tipo: 'Abono' });
+    setLineasFactura(LINEAS_INIT);
+  };
+
+  const actualizarLinea = (i: number, campo: string, valor: string) => {
+    setLineasFactura(prev => {
+      const nuevas = [...prev];
+      nuevas[i] = { ...nuevas[i], [campo]: valor.replace(',', '.') };
+      return nuevas;
+    });
+  };
+
+  const subtotalLineas = lineasFactura.reduce((acc, l) => acc + (parseFloat(l.medicion || '1') * parseFloat(l.precio || '0')), 0);
+
   const guardarAbonoManual = async () => {
-    if (!abonoData.numero_factura || !abonoData.cliente_nombre || !abonoData.subtotal) {
-      toast.error('Rellena al menos: número de documento, cliente e importe');
+    const lineasValidas = lineasFactura.filter(l => l.descripcion.trim() && parseFloat(l.precio || '0') > 0);
+    if (!abonoData.numero_factura || !abonoData.cliente_nombre || lineasValidas.length === 0) {
+      toast.error('Rellena al menos: número de documento, cliente y una línea con importe');
       return;
     }
     setIsSavingAbono(true);
     try {
-      const subtotalNum = parseFloat(abonoData.subtotal);
       const esAbono = abonoData.tipo === 'Abono';
-      const importe = esAbono ? -Math.abs(subtotalNum) : Math.abs(subtotalNum);
+      const importe = esAbono ? -Math.abs(subtotalLineas) : Math.abs(subtotalLineas);
+      const partidas = lineasValidas.map(l => ({
+        descripcion: l.descripcion,
+        medicion: parseFloat(l.medicion || '1'),
+        total_euros: (parseFloat(l.medicion || '1') * parseFloat(l.precio || '0')).toFixed(2),
+      }));
 
       const { error } = await supabase.from('facturas').insert([{
         numero_factura: abonoData.numero_factura,
@@ -94,32 +115,17 @@ export default function FacturasPage() {
         cliente_cif: abonoData.cliente_cif || '',
         cliente_direccion: abonoData.cliente_direccion || '',
         obra: abonoData.obra || '',
-        partidas: [{
-          descripcion: abonoData.concepto || (esAbono ? 'ABONO PARCIAL' : 'FACTURA MANUAL'),
-          medicion: 1,
-          total_euros: Math.abs(subtotalNum),
-        }],
+        partidas,
         subtotal: importe,
         importe_total: importe * 1.21,
         total_iva: importe * 0.21,
         tipo: abonoData.tipo,
-        notas: `${abonoData.tipo.toUpperCase()} — ${abonoData.concepto || 'Registro manual'}`,
+        notas: `${abonoData.tipo.toUpperCase()} — Registro manual`,
       }]);
 
       if (error) throw error;
       toast.success(`${abonoData.tipo} registrado correctamente`);
-      setShowAbonoModal(false);
-      setAbonoData({
-        numero_factura: '',
-        fecha_emision: new Date().toISOString().split('T')[0],
-        cliente_nombre: '',
-        cliente_cif: '',
-        cliente_direccion: '',
-        obra: '',
-        concepto: '',
-        subtotal: '',
-        tipo: 'Abono',
-      });
+      resetModal();
       fetchFacturas();
     } catch (err: any) {
       toast.error('Error: ' + err.message);
@@ -129,6 +135,14 @@ export default function FacturasPage() {
   };
 
   // ── Factura rectificativa ────────────────────────────────────────
+  const eliminarFactura = async (id: string) => {
+    if (!confirm('¿Seguro que quieres borrar esta factura? Esta acción no se puede deshacer.')) return;
+    const { error } = await supabase.from('facturas').delete().eq('id', id);
+    if (error) return toast.error('Error al eliminar la factura');
+    toast.success('Factura eliminada');
+    fetchFacturas();
+  };
+
   const crearRectificativa = async (original: any) => {
     const motivo = prompt("Indique el motivo de la rectificación:");
     if (!motivo) return;
@@ -305,7 +319,7 @@ export default function FacturasPage() {
               <h2 className="text-2xl font-black uppercase italic text-white">
                 Nuevo <span className="text-orange-400">Documento</span>
               </h2>
-              <button onClick={() => setShowAbonoModal(false)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
+              <button onClick={resetModal} className="p-2 hover:bg-white/10 rounded-xl transition-all">
                 <X size={28} className="text-white/40 hover:text-white" />
               </button>
             </div>
@@ -399,42 +413,55 @@ export default function FacturasPage() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="text-[10px] font-black text-white/40 uppercase block mb-2">Concepto / Descripción</label>
-                <input
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white font-bold outline-none focus:border-orange-500 transition-all"
-                  placeholder={
-                    abonoData.tipo === 'Abono'
-                      ? 'Ej: Abono 1er pago reforma cocina'
-                      : abonoData.tipo === 'Pago Parcial'
-                      ? 'Ej: Pago a cuenta — 50% reforma'
-                      : 'Ej: Trabajos de tabiquería planta 1'
-                  }
-                  value={abonoData.concepto}
-                  onChange={e => setAbonoData({ ...abonoData, concepto: e.target.value })}
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="text-[10px] font-black text-white/40 uppercase block mb-2">Importe (sin IVA) *</label>
-                <div className="relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-orange-400 font-black text-xl">€</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 pl-12 text-white font-black text-2xl outline-none focus:border-orange-500 transition-all"
-                    placeholder="0.00"
-                    value={abonoData.subtotal}
-                    onChange={e => setAbonoData({ ...abonoData, subtotal: e.target.value })}
-                  />
+                <label className="text-[10px] font-black text-white/40 uppercase block mb-3">Líneas del documento *</label>
+                <div className="space-y-2 mb-3">
+                  {lineasFactura.map((l, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        className="flex-1 bg-white/5 border border-white/10 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-orange-500 transition-all"
+                        placeholder="Descripción de la línea..."
+                        value={l.descripcion}
+                        onChange={e => actualizarLinea(i, 'descripcion', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="w-16 bg-white/5 border border-white/10 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-orange-500 text-center transition-all"
+                        placeholder="Cant."
+                        value={l.medicion}
+                        onChange={e => actualizarLinea(i, 'medicion', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="w-28 bg-white/5 border border-white/10 rounded-xl p-3 text-white text-sm font-black outline-none focus:border-orange-500 text-right transition-all"
+                        placeholder="Precio €"
+                        value={l.precio}
+                        onChange={e => actualizarLinea(i, 'precio', e.target.value)}
+                      />
+                      <span className="text-white/40 text-xs font-bold w-20 text-right shrink-0">
+                        {(parseFloat(l.medicion || '1') * parseFloat(l.precio || '0')).toFixed(2)} €
+                      </span>
+                      {lineasFactura.length > 1 && (
+                        <button onClick={() => setLineasFactura(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-300 transition-all shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {abonoData.subtotal && !isNaN(parseFloat(abonoData.subtotal)) && (
-                  <div className="mt-3 flex gap-6 text-sm px-2">
-                    <span className="text-white/40 font-bold">
-                      IVA (21%): <span className="text-white">{(parseFloat(abonoData.subtotal) * 0.21).toFixed(2)} €</span>
-                    </span>
-                    <span className="text-orange-400 font-black">
-                      TOTAL c/IVA: {(parseFloat(abonoData.subtotal) * 1.21).toFixed(2)} €
-                    </span>
+                <button
+                  type="button"
+                  onClick={() => setLineasFactura(prev => [...prev, { descripcion: '', medicion: '1', precio: '' }])}
+                  className="flex items-center gap-2 text-[10px] font-black text-orange-400 hover:text-orange-300 uppercase tracking-widest transition-all"
+                >
+                  <Plus size={12} /> Añadir línea
+                </button>
+                {subtotalLineas > 0 && (
+                  <div className="mt-4 flex gap-6 text-sm px-2 border-t border-white/10 pt-4">
+                    <span className="text-white/40 font-bold">Subtotal s/IVA: <span className="text-white">{subtotalLineas.toFixed(2)} €</span></span>
+                    <span className="text-white/40 font-bold">IVA 21%: <span className="text-white">{(subtotalLineas * 0.21).toFixed(2)} €</span></span>
+                    <span className="text-orange-400 font-black">TOTAL: {(subtotalLineas * 1.21).toFixed(2)} €</span>
                   </div>
                 )}
               </div>
@@ -602,6 +629,13 @@ export default function FacturasPage() {
                           <AlertCircle size={16} />
                         </button>
                       )}
+                      <button
+                        onClick={() => eliminarFactura(f.id)}
+                        className="bg-zinc-100 text-zinc-400 p-3 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-lg"
+                        title="Eliminar factura"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
