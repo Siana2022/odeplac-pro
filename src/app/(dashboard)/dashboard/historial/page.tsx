@@ -147,10 +147,10 @@ export default function HistorialPresupuestos() {
   };
 
   const eliminarPresupuesto = async (id: string) => {
-    if (!confirm('¿Seguro que quieres borrar este presupuesto?')) return;
-    const { error } = await supabase.from('presupuestos_generados').delete().eq('id', id);
+    if (!confirm('¿Mover a la papelera? Podrás recuperarlo desde allí.')) return;
+    const { error } = await supabase.from('presupuestos_generados').update({ estado: 'papelera' }).eq('id', id);
     if (error) return toast.error('Error al eliminar');
-    toast.success('Presupuesto eliminado');
+    toast.success('Movido a la papelera');
     setPresupuestoSeleccionado(null);
     fetchHistorial();
   };
@@ -203,7 +203,8 @@ export default function HistorialPresupuestos() {
   // ─────────────────────────────────────────────────────────────────────────
   // PDF PROFESIONAL — réplica del presupuesto Excel de Odeplac (imagen 3)
   // ─────────────────────────────────────────────────────────────────────────
-  const descargarPDF = (p: any) => {
+  const descargarPDF = async (p: any) => {
+    const { data: clienteData } = await supabase.from('clientes').select('telefono,email,nif_cif').eq('nombre', p.cliente_nombre).maybeSingle();
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const partidas = editandoPartidas ? partidasEditadas : (p.partidas_json || []);
 
@@ -292,11 +293,10 @@ export default function HistorialPresupuestos() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     let yCliente = 55;
-    // Puedes enriquecer estos datos si los guardas en el presupuesto
-    doc.text(`Telefono:`, 14, yCliente);
-    doc.text(`Correo :`, 14, yCliente + 5);
+    doc.text(`Telefono: ${clienteData?.telefono || ''}`, 14, yCliente);
+    doc.text(`Correo : ${clienteData?.email || ''}`, 14, yCliente + 5);
     doc.setFont('helvetica', 'bold');
-    doc.text(`CIF:`, 14, yCliente + 10);
+    doc.text(`CIF: ${clienteData?.nif_cif || ''}`, 14, yCliente + 10);
     doc.text(`FECHA:  ${fechaHoy}`, 14, yCliente + 16);
     doc.text('FECHA VENCIMIENTO: 10 DÍAS', 14, yCliente + 22);
 

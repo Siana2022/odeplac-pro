@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Briefcase, Users, Box, Truck, Settings,
   FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard, GraduationCap,
-  Clock, Send
+  Clock, Send, Trash2
 } from 'lucide-react';
 
 const menuItems = [
@@ -22,6 +22,7 @@ const menuItems = [
   { name: 'Rentabilidad',      icon: TrendingUp,       href: '/dashboard/rentabilidad' },
   { name: 'Inteligencia',      icon: Brain,            href: '/dashboard/configurador' },
   { name: 'Entrenar IA',       icon: GraduationCap,    href: '/dashboard/entrenamiento' },
+  { name: 'Papelera',          icon: Trash2,           href: '/dashboard/papelera' },
   { name: 'Configuración',     icon: Settings,         href: '/dashboard/configuracion' },
   { name: 'Escáner Planos',    icon: Ruler,            href: '/dashboard/escanner-planos' },
 ];
