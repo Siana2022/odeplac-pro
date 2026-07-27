@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   Calendar, User, ChevronRight, ArrowLeft,
   FileText, Search, X, Edit2,
-  Save, Loader2, Trash2, Download, Plus, Send
+  Save, Loader2, Trash2, Download, Plus, Send, ChevronUp, ChevronDown
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -97,6 +97,16 @@ export default function PendientesPage() {
   const cancelarEdicion = () => {
     setPartidasEditadas(JSON.parse(JSON.stringify(seleccionado.partidas_json || [])));
     setEditandoPartidas(false);
+  };
+
+  const moverPartidaEditada = (index: number, direccion: 'arriba' | 'abajo') => {
+    setPartidasEditadas(prev => {
+      const nuevas = [...prev];
+      const destino = direccion === 'arriba' ? index - 1 : index + 1;
+      if (destino < 0 || destino >= nuevas.length) return prev;
+      [nuevas[index], nuevas[destino]] = [nuevas[destino], nuevas[index]];
+      return nuevas;
+    });
   };
 
   const guardarNombre = async () => {
@@ -435,7 +445,11 @@ export default function PendientesPage() {
                         <div className="flex items-center gap-2 mb-3">
                           <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest shrink-0">Ofertamos:</span>
                           <input value={p.ofertamos || ''} onChange={(e) => actualizarPartida(i, 'ofertamos', e.target.value)} placeholder="Ej: TABIQUE SENCILLO 48H..." className="flex-1 text-sm font-black text-blue-700 border-b border-blue-100 outline-none focus:border-blue-400 bg-transparent pb-0.5" />
-                          <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 shrink-0 ml-2"><Trash2 size={14} /></button>
+                          <div className="flex flex-col shrink-0 ml-1">
+                            <button onClick={() => moverPartidaEditada(i, 'arriba')} disabled={i === 0} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={13} /></button>
+                            <button onClick={() => moverPartidaEditada(i, 'abajo')} disabled={i === partidasEditadas.length - 1} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={13} /></button>
+                          </div>
+                          <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 shrink-0 ml-1"><Trash2 size={14} /></button>
                         </div>
                         <textarea
                           value={p.descripcion || ''}

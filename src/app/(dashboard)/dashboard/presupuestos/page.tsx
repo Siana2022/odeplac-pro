@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import { Upload, Loader2, History, Save, Truck, Plus, Trash2, Download, Receipt, X, FileText, TrendingUp, Wrench } from 'lucide-react';
+import { Upload, Loader2, History, Save, Truck, Plus, Trash2, Download, Receipt, X, FileText, TrendingUp, Wrench, ChevronUp, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
@@ -43,7 +43,10 @@ export default function GestionPresupuestos() {
     '.-No se incluye apertura de huecos. No se incluyen refuerzos para instalación de mobiliario, sanitarios.\n' +
     '.-EN CASO DE ALTURA SUPERIOR A 4M INCREMENTO DEL 20% SOBRE EL PRECIO DEL SISTEMA.';
 
-  const [numeroPresupuesto, setNumeroPresupuesto] = useState('');
+  const [numeroPresupuesto, setNumeroPresupuesto] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('odeplac_ultimo_num_presupuesto') || '';
+    return '';
+  });
   const [manoDeObra, setManoDeObra] = useState<{ descripcion: string; coste: number }>({ descripcion: '', coste: 0 });
   const [notasAdicionales, setNotasAdicionales] = useState(NOTAS_ESTANDAR);
   const [showFacturaModal, setShowFacturaModal] = useState(false);
@@ -490,6 +493,16 @@ export default function GestionPresupuestos() {
     });
   };
 
+  const moverPartida = (index: number, direccion: 'arriba' | 'abajo') => {
+    setPartidas(prev => {
+      const nuevas = [...prev];
+      const destino = direccion === 'arriba' ? index - 1 : index + 1;
+      if (destino < 0 || destino >= nuevas.length) return prev;
+      [nuevas[index], nuevas[destino]] = [nuevas[destino], nuevas[index]];
+      return nuevas;
+    });
+  };
+
   const prepararFactura = async (presupuestoData: any) => {
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', presupuestoData.cliente_id).single();
     setDatosFactura({
@@ -593,6 +606,7 @@ export default function GestionPresupuestos() {
 
       if (error) throw error;
 
+      if (numeroPresupuesto.trim()) localStorage.setItem('odeplac_ultimo_num_presupuesto', numeroPresupuesto.trim());
       toast.success('Presupuesto guardado en Pendientes ✓');
       setPartidas([]);
       setObraNombre('');
@@ -773,7 +787,15 @@ export default function GestionPresupuestos() {
                 <div className="space-y-4 mb-8">
                   {partidas.map((p, i) => (
                     <div key={i} className="p-6 bg-zinc-50 rounded-2xl border border-zinc-100 flex gap-4 items-start">
-                      <span className="text-zinc-300 font-bold text-xs italic pt-1">{i + 1}</span>
+                      <div className="flex flex-col items-center gap-0.5 pt-1">
+                        <button onClick={() => moverPartida(i, 'arriba')} disabled={i === 0} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed">
+                          <ChevronUp size={14} />
+                        </button>
+                        <span className="text-zinc-300 font-bold text-xs italic leading-none">{i + 1}</span>
+                        <button onClick={() => moverPartida(i, 'abajo')} disabled={i === partidas.length - 1} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed">
+                          <ChevronDown size={14} />
+                        </button>
+                      </div>
                       <div className="flex-1">
                         <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Descripción / Sistema</label>
                         <input
