@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   Calendar, User, ChevronRight, ArrowLeft,
   FileText, Search, X, Edit2, CheckCircle2,
-  Save, Loader2, Trash2, Download, Plus, RotateCcw, ChevronUp, ChevronDown
+  Save, Loader2, Trash2, Download, Plus, RotateCcw, GripVertical
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -38,6 +38,8 @@ export default function EnviadosPage() {
   const [partidasEditadas, setPartidasEditadas] = useState<any[]>([]);
   const [numeroPresupuesto, setNumeroPresupuesto] = useState('');
   const [isMoving, setIsMoving] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const fetchLista = async () => {
     setLoading(true);
@@ -104,23 +106,25 @@ export default function EnviadosPage() {
     setEditandoPartidas(false);
   };
 
-  const moverPartidaVista = async (index: number, direccion: 'arriba' | 'abajo') => {
+  const handleDropVista = async (dropIndex: number) => {
+    if (dragIndex === null || dragIndex === dropIndex) { setDragIndex(null); setDragOverIndex(null); return; }
     const partidas = [...(seleccionado.partidas_json || [])];
-    const destino = direccion === 'arriba' ? index - 1 : index + 1;
-    if (destino < 0 || destino >= partidas.length) return;
-    [partidas[index], partidas[destino]] = [partidas[destino], partidas[index]];
+    const [moved] = partidas.splice(dragIndex, 1);
+    partidas.splice(dropIndex, 0, moved);
     setSeleccionado({ ...seleccionado, partidas_json: partidas });
+    setDragIndex(null); setDragOverIndex(null);
     await supabase.from('presupuestos_generados').update({ partidas_json: partidas }).eq('id', seleccionado.id);
   };
 
-  const moverPartidaEditada = (index: number, direccion: 'arriba' | 'abajo') => {
+  const handleDropEdit = (dropIndex: number) => {
+    if (dragIndex === null || dragIndex === dropIndex) { setDragIndex(null); setDragOverIndex(null); return; }
     setPartidasEditadas(prev => {
       const nuevas = [...prev];
-      const destino = direccion === 'arriba' ? index - 1 : index + 1;
-      if (destino < 0 || destino >= nuevas.length) return prev;
-      [nuevas[index], nuevas[destino]] = [nuevas[destino], nuevas[index]];
+      const [moved] = nuevas.splice(dragIndex, 1);
+      nuevas.splice(dropIndex, 0, moved);
       return nuevas;
     });
+    setDragIndex(null); setDragOverIndex(null);
   };
 
   const guardarNombre = async () => {
@@ -422,13 +426,18 @@ export default function EnviadosPage() {
                     </thead>
                     <tbody className="divide-y divide-zinc-50 text-zinc-800">
                       {seleccionado.partidas_json?.map((p: any, i: number) => (
-                        <tr key={i} className="hover:bg-zinc-50/50">
-                          <td className="py-3 px-2">
-                            <div className="flex flex-col items-center gap-0">
-                              <button onClick={() => moverPartidaVista(i, 'arriba')} disabled={i === 0} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={13} /></button>
-                              <span className="text-zinc-300 font-bold text-[10px] leading-none">{i + 1}</span>
-                              <button onClick={() => moverPartidaVista(i, 'abajo')} disabled={i === seleccionado.partidas_json.length - 1} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={13} /></button>
-                            </div>
+                        <tr
+                          key={i}
+                          draggable
+                          onDragStart={() => setDragIndex(i)}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i); }}
+                          onDragLeave={() => setDragOverIndex(null)}
+                          onDrop={() => handleDropVista(i)}
+                          onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                          className={`transition-colors cursor-grab active:cursor-grabbing ${dragOverIndex === i ? 'bg-blue-50 border-t-2 border-blue-400' : 'hover:bg-zinc-50/50'} ${dragIndex === i ? 'opacity-40' : ''}`}
+                        >
+                          <td className="py-3 px-2 text-center">
+                            <GripVertical size={14} className="text-zinc-300 mx-auto" />
                           </td>
                           <td className="py-3">
                             {p.ofertamos && <p className="text-[10px] font-black text-blue-500 uppercase tracking-tighter mb-0.5">{p.ofertamos}</p>}
@@ -451,14 +460,20 @@ export default function EnviadosPage() {
                 ) : (
                   <div className="max-h-[600px] overflow-y-auto p-4 space-y-3 bg-zinc-50">
                     {partidasEditadas.map((p: any, i: number) => (
-                      <div key={i} className="bg-white border border-zinc-100 rounded-2xl p-4 shadow-sm">
+                      <div
+                        key={i}
+                        draggable
+                        onDragStart={() => setDragIndex(i)}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverIndex(i); }}
+                        onDragLeave={() => setDragOverIndex(null)}
+                        onDrop={() => handleDropEdit(i)}
+                        onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                        className={`bg-white border rounded-2xl p-4 shadow-sm transition-all cursor-grab active:cursor-grabbing ${dragOverIndex === i ? 'border-blue-400 bg-blue-50' : 'border-zinc-100'} ${dragIndex === i ? 'opacity-40' : ''}`}
+                      >
                         <div className="flex items-center gap-2 mb-3">
+                          <GripVertical size={14} className="text-zinc-300 shrink-0" />
                           <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest shrink-0">Ofertamos:</span>
                           <input value={p.ofertamos || ''} onChange={(e) => actualizarPartida(i, 'ofertamos', e.target.value)} placeholder="Ej: TABIQUE SENCILLO 48H..." className="flex-1 text-sm font-black text-blue-700 border-b border-blue-100 outline-none focus:border-blue-400 bg-transparent pb-0.5" />
-                          <div className="flex flex-col shrink-0 ml-1">
-                            <button onClick={() => moverPartidaEditada(i, 'arriba')} disabled={i === 0} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={13} /></button>
-                            <button onClick={() => moverPartidaEditada(i, 'abajo')} disabled={i === partidasEditadas.length - 1} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={13} /></button>
-                          </div>
                           <button onClick={() => setPartidasEditadas(prev => prev.filter((_, idx) => idx !== i))} className="text-red-300 hover:text-red-500 shrink-0 ml-1"><Trash2 size={14} /></button>
                         </div>
                         <textarea
