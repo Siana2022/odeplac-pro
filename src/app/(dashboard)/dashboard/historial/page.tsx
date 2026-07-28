@@ -137,6 +137,15 @@ export default function HistorialPresupuestos() {
     setEditandoPartidas(false);
   };
 
+  const moverPartidaVista = async (index: number, direccion: 'arriba' | 'abajo') => {
+    const partidas = [...(presupuestoSeleccionado.partidas_json || [])];
+    const destino = direccion === 'arriba' ? index - 1 : index + 1;
+    if (destino < 0 || destino >= partidas.length) return;
+    [partidas[index], partidas[destino]] = [partidas[destino], partidas[index]];
+    setPresupuestoSeleccionado({ ...presupuestoSeleccionado, partidas_json: partidas });
+    await supabase.from('presupuestos_generados').update({ partidas_json: partidas }).eq('id', presupuestoSeleccionado.id);
+  };
+
   const moverPartidaEditada = (index: number, direccion: 'arriba' | 'abajo') => {
     setPartidasEditadas(prev => {
       const nuevas = [...prev];
@@ -608,7 +617,7 @@ export default function HistorialPresupuestos() {
                   <table className="w-full text-sm">
                     <thead className="bg-white border-b">
                       <tr className="text-zinc-400 text-[10px] font-black uppercase tracking-widest">
-                        <th className="py-2 px-4 text-left w-8">Nº</th>
+                        <th className="py-2 px-2 text-left w-12"></th>
                         <th className="py-2 text-left">Descripción</th>
                         <th className="py-2 text-right w-20">Medición</th>
                         <th className="py-2 text-right w-20">€/m²</th>
@@ -618,7 +627,13 @@ export default function HistorialPresupuestos() {
                     <tbody className="divide-y divide-zinc-50 text-zinc-800">
                       {presupuestoSeleccionado.partidas_json?.map((p: any, i: number) => (
                         <tr key={i} className="hover:bg-zinc-50/50">
-                          <td className="py-3 px-4 font-bold text-zinc-300 text-xs">{p.item || i + 1}</td>
+                          <td className="py-3 px-2">
+                            <div className="flex flex-col items-center gap-0">
+                              <button onClick={() => moverPartidaVista(i, 'arriba')} disabled={i === 0} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronUp size={13} /></button>
+                              <span className="text-zinc-300 font-bold text-[10px] leading-none">{i + 1}</span>
+                              <button onClick={() => moverPartidaVista(i, 'abajo')} disabled={i === presupuestoSeleccionado.partidas_json.length - 1} className="text-zinc-300 hover:text-zinc-500 disabled:opacity-20 disabled:cursor-not-allowed"><ChevronDown size={13} /></button>
+                            </div>
+                          </td>
                           <td className="py-3">
                             {p.ofertamos && <p className="text-[10px] font-black text-blue-500 uppercase tracking-tighter mb-0.5">{p.ofertamos}</p>}
                             <p className="font-bold leading-snug text-sm">{p.descripcion}</p>
