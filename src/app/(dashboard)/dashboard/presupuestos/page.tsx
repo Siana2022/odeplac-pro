@@ -602,6 +602,7 @@ export default function GestionPresupuestos() {
         partidas_json: partidasParaGuardar,
         total_materiales: subtotal,
         estado: 'pendiente',
+        numero_presupuesto: numeroPresupuesto.trim() || null,
       }]);
 
       if (error) throw error;

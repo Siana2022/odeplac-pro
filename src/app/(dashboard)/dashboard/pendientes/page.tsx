@@ -57,7 +57,12 @@ export default function PendientesPage() {
     setPartidasEditadas(JSON.parse(JSON.stringify(p.partidas_json || [])));
     setEditandoPartidas(false);
     setEditandoNombre(false);
-    setNumeroPresupuesto('');
+    setNumeroPresupuesto(p.numero_presupuesto || '');
+  };
+
+  const guardarNumeroPresupuesto = async (valor: string) => {
+    if (!seleccionado) return;
+    await supabase.from('presupuestos_generados').update({ numero_presupuesto: valor }).eq('id', seleccionado.id);
   };
 
   const actualizarPartida = (index: number, campo: string, valor: string) => {
@@ -345,9 +350,10 @@ export default function PendientesPage() {
                     className="bg-zinc-100 border border-zinc-200 rounded-lg px-3 py-1 text-sm font-black text-[#1e3d6b] outline-none focus:border-[#1e3d6b] w-28"
                     value={numeroPresupuesto}
                     onChange={(e) => setNumeroPresupuesto(e.target.value)}
+                    onBlur={(e) => guardarNumeroPresupuesto(e.target.value)}
                     placeholder="26001"
                   />
-                  <span className="text-[9px] text-zinc-400 italic">Para el PDF</span>
+                  <span className="text-[9px] text-zinc-400 italic">Se guarda automáticamente</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
