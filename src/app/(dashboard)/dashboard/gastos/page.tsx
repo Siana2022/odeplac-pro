@@ -315,7 +315,8 @@ export default function GastosMaterialPage() {
               {filtro ? 'Sin resultados' : 'Sin facturas. Sube un PDF para empezar.'}
             </div>
           ) : (
-            <table className="w-full text-left border-separate border-spacing-y-3">
+            <div className="overflow-x-auto">
+            <table className="min-w-[700px] w-full text-left border-separate border-spacing-y-3">
               <thead>
                 <tr className="text-[10px] font-black uppercase text-emerald-400/60 italic tracking-[0.2em]">
                   <th className="px-6 pb-2">Fecha</th>
@@ -366,6 +367,7 @@ export default function GastosMaterialPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

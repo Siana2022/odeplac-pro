@@ -330,13 +330,12 @@ export default function HistorialPresupuestos() {
 
     // ── 5. TABLA DE PARTIDAS con "OFERTAMOS:" ────────────────────────────
     const tableBody = partidas.map((item: any) => {
-      const descripcionOfertamos = item.ofertamos
-        ? `OFERTAMOS: ${item.ofertamos}`
-        : item.descripcion?.toUpperCase() || '';
-
-      const descripcionCompleta = item.detalle_tecnico
-        ? `${descripcionOfertamos}\n${item.detalle_tecnico}`
-        : descripcionOfertamos;
+      const partes: string[] = [];
+      if (item.ofertamos) partes.push(`OFERTAMOS: ${item.ofertamos}`);
+      else if (item.descripcion) partes.push(item.descripcion.toUpperCase());
+      if (item.ofertamos && item.descripcion) partes.push(item.descripcion);
+      if (item.detalle_tecnico) partes.push(item.detalle_tecnico);
+      const descripcionCompleta = partes.join('\n');
 
       const medicion = parseFloat(item.medicion) || 0;
       const totalEuros = parseFloat(item.total_euros) || 0;
