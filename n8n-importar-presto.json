@@ -1,0 +1,155 @@
+{
+  "name": "ODEPLAC – Importar PDF de Presto",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "C:\\Presto\\Exportados",
+        "events": ["add"],
+        "ignoreInitial": true,
+        "options": {
+          "includePatterns": "*.pdf"
+        }
+      },
+      "id": "node-watch",
+      "name": "Vigilar carpeta de Presto",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.path }}"
+      },
+      "id": "node-read",
+      "name": "Leer PDF",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://TU-APP.vercel.app/api/gemini/importar-presto",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-import-secret",
+              "value": "={{ $env.PRESTO_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-post",
+      "name": "Enviar a ODEPLAC",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if",
+      "name": "¿Éxito?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://TU-APP.supabase.co/rest/v1/presupuestos_generados",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"obra\": \"{{ $node['Enviar a ODEPLAC'].json.obra }}\",\n  \"cliente_nombre\": \"{{ $node['Enviar a ODEPLAC'].json.cliente }}\",\n  \"partidas\": {{ JSON.stringify($node['Enviar a ODEPLAC'].json.partidas) }},\n  \"total\": {{ $node['Enviar a ODEPLAC'].json.total }},\n  \"estado\": \"borrador\",\n  \"notas\": \"Importado automáticamente de Presto\"\n}",
+        "options": {}
+      },
+      "id": "node-supabase",
+      "name": "Guardar en ODEPLAC (Supabase)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node['Enviar a ODEPLAC'].json;\nconsole.log(`ERROR importando ${$node['Leer PDF'].json.fileName}: ${JSON.stringify(data)}`);\nreturn [{json: {error: true, archivo: $node['Leer PDF'].json.fileName, detalle: data}}];"
+      },
+      "id": "node-error",
+      "name": "Log error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 420]
+    }
+  ],
+  "connections": {
+    "Vigilar carpeta de Presto": {
+      "main": [[{"node": "Leer PDF", "type": "main", "index": 0}]]
+    },
+    "Leer PDF": {
+      "main": [[{"node": "Enviar a ODEPLAC", "type": "main", "index": 0}]]
+    },
+    "Enviar a ODEPLAC": {
+      "main": [[{"node": "¿Éxito?", "type": "main", "index": 0}]]
+    },
+    "¿Éxito?": {
+      "main": [
+        [{"node": "Guardar en ODEPLAC (Supabase)", "type": "main", "index": 0}],
+        [{"node": "Log error", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
