@@ -8,9 +8,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import Link from 'next/link';
 
-function getTrimestre(fecha: string): string {
-  const mes = new Date(fecha).getMonth() + 1;
-  const año = new Date(fecha).getFullYear();
+function getTrimestre(fecha: string | null | undefined): string {
+  if (!fecha) return 'Sin fecha';
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return 'Sin fecha';
+  const mes = d.getMonth() + 1;
+  const año = d.getFullYear();
   const t = Math.ceil(mes / 3);
   return `${año}-T${t}`;
 }

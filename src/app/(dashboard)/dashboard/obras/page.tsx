@@ -92,7 +92,8 @@ export default function PipelinePage() {
   const handleEliminarObra = async (id: string) => {
     try {
       // Primero eliminamos los seguimientos asociados
-      await supabase.from('obra_seguimiento').delete().eq('obra_id', id);
+      const { error: errorSeguimientos } = await supabase.from('obra_seguimiento').delete().eq('obra_id', id);
+      if (errorSeguimientos) throw errorSeguimientos;
       // Luego eliminamos la obra
       const { error } = await supabase.from('obras').delete().eq('id', id);
       if (error) throw error;

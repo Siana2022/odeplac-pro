@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
-import { Upload, Loader2, History, Save, Truck, Plus, Trash2, Download, Receipt, X, FileText, TrendingUp, Wrench, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Upload, Loader2, History, Save, Truck, Plus, Trash2, Download, Receipt, X, FileText, TrendingUp, Wrench, ChevronUp, ChevronDown, FileInput } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
@@ -25,8 +25,10 @@ export default function GestionPresupuestos() {
   const supabase = createClient();
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isImportingPresto, setIsImportingPresto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [modoManual, setModoManual] = useState(false);
+  const prestoInputRef = useRef<HTMLInputElement>(null);
   const [clientes, setClientes] = useState<any[]>([]);
   const [misMateriales, setMisMateriales] = useState<any[]>([]);
   const [sistemasMaestros, setSistemasMaestros] = useState<any[]>([]);
@@ -580,6 +582,59 @@ export default function GestionPresupuestos() {
     }
   };
 
+  const handleImportarPresto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingPresto(true);
+    const toastId = toast.loading('🤖 Importando presupuesto de Presto...');
+
+    try {
+      const form = new FormData();
+      form.append('file', file);
+
+      const response = await fetch('/api/gemini/importar-presto', { method: 'POST', body: form });
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || 'Error al importar');
+
+      // Rellenar partidas y nombre de obra
+      setPartidas(data.partidas || []);
+      setObraNombre(data.obra || 'Obra importada de Presto');
+
+      // Intentar auto-seleccionar cliente si el PDF lo incluye
+      if (data.cliente && clientes.length > 0) {
+        const clienteNorm = data.cliente.toLowerCase();
+        const match = clientes.find(c =>
+          c.nombre.toLowerCase().includes(clienteNorm) ||
+          clienteNorm.includes(c.nombre.toLowerCase())
+        );
+        if (match) {
+          setClienteSeleccionado(match);
+          toast.success(
+            `✅ ${data.partidas.length} partidas importadas — Cliente auto-seleccionado: ${match.nombre}`,
+            { id: toastId }
+          );
+        } else {
+          toast.success(
+            `✅ ${data.partidas.length} partidas importadas. Selecciona el cliente manualmente.`,
+            { id: toastId }
+          );
+        }
+      } else {
+        toast.success(
+          `✅ ${data.partidas.length} partidas importadas desde Presto`,
+          { id: toastId }
+        );
+      }
+    } catch (error: any) {
+      toast.error('Error: ' + error.message, { id: toastId });
+    } finally {
+      setIsImportingPresto(false);
+      if (prestoInputRef.current) prestoInputRef.current.value = '';
+    }
+  };
+
   const finalizarYGuardar = async () => {
     if (!clienteSeleccionado || partidas.length === 0) return toast.error('Faltan datos');
     setIsSaving(true);
@@ -718,6 +773,26 @@ export default function GestionPresupuestos() {
             >
               + Crear sin PDF (manual)
             </button>
+
+            {/* IMPORTAR DESDE PRESTO */}
+            <label className={`border-2 rounded-3xl p-6 flex flex-col items-center justify-center cursor-pointer transition-all gap-2 mt-3 ${isImportingPresto ? 'opacity-40 cursor-not-allowed' : 'hover:border-orange-400 border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10'}`}>
+              <input
+                ref={prestoInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleImportarPresto}
+                accept=".pdf"
+                disabled={isImportingPresto}
+              />
+              {isImportingPresto
+                ? <Loader2 className="animate-spin text-orange-400 h-6 w-6" />
+                : <FileInput className="text-orange-400 h-6 w-6" />
+              }
+              <span className="text-[10px] font-black uppercase text-center text-orange-300">
+                {isImportingPresto ? 'Importando...' : 'Importar PDF de Presto'}
+              </span>
+              <span className="text-[9px] text-white/30 text-center">Extrae partidas automáticamente</span>
+            </label>
           </div>
 
           {/* PREVIEW ORDEN DE COMPRA */}
@@ -798,6 +873,11 @@ export default function GestionPresupuestos() {
                         </button>
                       </div>
                       <div className="flex-1">
+                        {p.capitulo && (
+                          <span className="text-[8px] font-black uppercase tracking-widest bg-orange-100 text-orange-500 px-2 py-0.5 rounded-full inline-block mb-1">
+                            {p.capitulo}
+                          </span>
+                        )}
                         <label className="text-[9px] font-black text-zinc-400 uppercase tracking-widest italic">Descripción / Sistema</label>
                         <input
                           list="datalist-materiales"
@@ -806,6 +886,9 @@ export default function GestionPresupuestos() {
                           onChange={(e) => actualizarPartida(i, 'descripcion', e.target.value)}
                           placeholder="ESCRIBE O SELECCIONA MATERIAL..."
                         />
+                        {p.ofertamos && (
+                          <p className="text-[10px] text-zinc-400 italic mt-0.5 line-clamp-2">{p.ofertamos}</p>
+                        )}
                         {p.descripcion && (
                           <div className="flex items-center gap-2 mt-1">
                             {(() => {
@@ -825,8 +908,17 @@ export default function GestionPresupuestos() {
                       <div className="flex flex-col gap-2">
                         <div>
                           <label className="text-[8px] font-black text-zinc-400 uppercase">Medición</label>
-                          <input type="text" inputMode="decimal" className="w-24 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value.replace(',', '.'))} />
+                          <div className="flex items-center gap-1">
+                            <input type="text" inputMode="decimal" className="w-20 bg-white border border-zinc-200 rounded-lg p-1.5 text-right font-black" value={p.medicion} onChange={(e) => actualizarPartida(i, 'medicion', e.target.value.replace(',', '.'))} />
+                            {p.unidad && <span className="text-[9px] text-zinc-400 font-bold">{p.unidad}</span>}
+                          </div>
                         </div>
+                        {p.precio_unitario > 0 && (
+                          <div>
+                            <label className="text-[8px] font-black text-zinc-400 uppercase">P. Unit.</label>
+                            <p className="text-xs font-bold text-zinc-500 text-right">{Number(p.precio_unitario).toFixed(2)} €</p>
+                          </div>
+                        )}
                         <div>
                           <label className="text-[8px] font-black text-zinc-400 uppercase">Precio unitario (€/m²)</label>
                           <input

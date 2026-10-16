@@ -14,7 +14,8 @@ export default function PortalCliente() {
     const fetchMisObras = async () => {
       // Gracias al SQL que pusimos arriba, esta consulta 
       // traerá automáticamente SOLO lo que le pertenece.
-      const { data } = await supabase.from('obras').select('*, obra_seguimiento(*)');
+      const { data, error } = await supabase.from('obras').select('*, obra_seguimiento(*)');
+      if (error) { console.error('Error al cargar obras del portal:', error.message); return; }
       setObras(data || []);
     };
     fetchMisObras();

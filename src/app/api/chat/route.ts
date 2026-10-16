@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const maxDuration = 60;
 
-const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 const TRAINING_TRIGGERS = [
   "aprende que", "aprende:", "recuerda que", "cuando pregunten",
@@ -22,6 +22,9 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const rawMessages = body.messages || [];
+    if (!rawMessages.length) {
+      return NextResponse.json({ error: 'Sin mensajes' }, { status: 400 });
+    }
     const trainingMode = body.training === true;
 
     const normalize = (text: string) =>
