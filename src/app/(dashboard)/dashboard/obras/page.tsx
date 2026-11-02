@@ -1,27 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, X, User, Loader2, Clock, AlertTriangle, MessageSquare,
   Truck, Flag, ChevronDown, Trash2, FileText, Package, Ruler,
   Clock3, BarChart3, Link2, Copy, TrendingUp, TrendingDown,
-  Calendar, Save, PlusCircle, Euro, Construction
+  Calendar, Save, PlusCircle, Construction, Upload, CheckCircle2,
+  Receipt, Euro
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 const COLUMNAS = [
-  { id: 'lead', title: 'LEADS' },
+  { id: 'lead',        title: 'LEADS' },
   { id: 'presupuesto', title: 'PRESUPUESTOS' },
-  { id: 'curso', title: 'EN CURSO' },
-  { id: 'terminado', title: 'TERMINADOS' }
+  { id: 'curso',       title: 'EN CURSO' },
+  { id: 'terminado',   title: 'TERMINADOS' }
 ];
 
 const ICONOS_TIPO: Record<string, any> = {
   comentario: <MessageSquare size={10} />,
-  logistica: <Truck size={10} />,
-  retraso: <AlertTriangle size={10} />,
-  hito: <Flag size={10} />
+  logistica:  <Truck size={10} />,
+  retraso:    <AlertTriangle size={10} />,
+  hito:       <Flag size={10} />
 };
 
 const TABS = [
@@ -61,11 +62,18 @@ export default function PipelinePage() {
   const [isSavingNote, setIsSavingNote]       = useState(false);
 
   // ── Presupuesto ───────────────────────────────────────────────────────────
-  const [presupuestos, setPresupuestos]               = useState<any[]>([]);
-  const [presupuestoVinculado, setPresupuestoVinculado] = useState<any>(null);
-  const [presupuestoSelId, setPresupuestoSelId]         = useState('');
-  const [isLinking, setIsLinking]                       = useState(false);
-  const [isDuplicating, setIsDuplicating]               = useState(false);
+  const [presupuestos, setPresupuestos]                     = useState<any[]>([]);
+  const [presupuestoVinculado, setPresupuestoVinculado]     = useState<any>(null);
+  const [presupuestoSelId, setPresupuestoSelId]             = useState('');
+  const [isLinking, setIsLinking]                           = useState(false);
+  const [isDuplicating, setIsDuplicating]                   = useState(false);
+
+  // ── Gastos ────────────────────────────────────────────────────────────────
+  const [gastos, setGastos]                   = useState<any[]>([]);
+  const [facturaPreview, setFacturaPreview]   = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing]         = useState(false);
+  const [isSavingGasto, setIsSavingGasto]     = useState(false);
+  const facturaInputRef                       = useRef<HTMLInputElement>(null);
 
   // ── Horas ─────────────────────────────────────────────────────────────────
   const [horas, setHoras]         = useState<any[]>([]);
@@ -77,9 +85,9 @@ export default function PipelinePage() {
   const [isSavingHora, setIsSavingHora] = useState(false);
 
   // ── Análisis ──────────────────────────────────────────────────────────────
-  const [fechaInicio, setFechaInicio]   = useState('');
-  const [fechaFin, setFechaFin]         = useState('');
-  const [isSavingFechas, setIsSavingFechas] = useState(false);
+  const [fechaInicio, setFechaInicio]         = useState('');
+  const [fechaFin, setFechaFin]               = useState('');
+  const [isSavingFechas, setIsSavingFechas]   = useState(false);
 
   // ── Fetch principal ───────────────────────────────────────────────────────
   const fetchData = async () => {
@@ -107,13 +115,16 @@ export default function PipelinePage() {
     setFechaInicio(obra.fecha_inicio || '');
     setFechaFin(obra.fecha_fin || '');
     setPresupuestoVinculado(null);
+    setFacturaPreview(null);
 
-    // Load in parallel
     await Promise.all([
       loadSeguimientos(obra.id),
       loadHoras(obra.id),
+      loadGastos(obra.id),
       loadPresupuestosLista(),
-      obra.presupuesto_vinculado_id ? loadPresupuestoVinculado(obra.presupuesto_vinculado_id) : Promise.resolve(),
+      obra.presupuesto_vinculado_id
+        ? loadPresupuestoVinculado(obra.presupuesto_vinculado_id)
+        : Promise.resolve(),
     ]);
   };
 
@@ -145,6 +156,13 @@ export default function PipelinePage() {
     if (!error) setHoras(data || []);
   };
 
+  const loadGastos = async (obraId: string) => {
+    const { data, error } = await supabase
+      .from('obra_gastos_material').select('*').eq('obra_id', obraId)
+      .order('fecha', { ascending: false });
+    if (!error) setGastos(data || []);
+  };
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleCrearObra = async () => {
     if (!nuevaObra.titulo || !nuevaObra.cliente_id) {
@@ -170,6 +188,7 @@ export default function PipelinePage() {
     try {
       await supabase.from('obra_seguimiento').delete().eq('obra_id', id);
       await supabase.from('obra_horas').delete().eq('obra_id', id);
+      await supabase.from('obra_gastos_material').delete().eq('obra_id', id);
       const { error } = await supabase.from('obras').delete().eq('id', id);
       if (error) throw error;
       toast.success('Obra eliminada');
@@ -254,6 +273,65 @@ export default function PipelinePage() {
     }
   };
 
+  // ── Gastos handlers ───────────────────────────────────────────────────────
+  const handleSeleccionarFactura = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { toast.error('Solo se aceptan PDFs'); return; }
+
+    setIsAnalyzing(true);
+    setFacturaPreview(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al analizar');
+      setFacturaPreview(json.factura);
+      toast.success('Factura analizada. Revisa y confirma.');
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsAnalyzing(false);
+      if (facturaInputRef.current) facturaInputRef.current.value = '';
+    }
+  };
+
+  const handleGuardarGasto = async () => {
+    if (!facturaPreview) return;
+    setIsSavingGasto(true);
+    try {
+      const { error } = await supabase.from('obra_gastos_material').insert([{
+        obra_id: selectedObra.id,
+        proveedor: facturaPreview.proveedor,
+        numero_factura: facturaPreview.numero_factura,
+        fecha: facturaPreview.fecha,
+        concepto: facturaPreview.referencia_obra || 'Material de obra',
+        base_imponible: facturaPreview.base_imponible,
+        iva_porcentaje: facturaPreview.iva_porcentaje,
+        iva_total: facturaPreview.iva_total,
+        total: facturaPreview.total,
+        lineas_json: facturaPreview.lineas_factura,
+      }]);
+      if (error) throw error;
+      toast.success('Gasto guardado');
+      setFacturaPreview(null);
+      loadGastos(selectedObra.id);
+    } catch (e: any) {
+      toast.error('Error: ' + e.message);
+    } finally {
+      setIsSavingGasto(false);
+    }
+  };
+
+  const eliminarGasto = async (id: string) => {
+    const { error } = await supabase.from('obra_gastos_material').delete().eq('id', id);
+    if (error) { toast.error('Error al eliminar'); return; }
+    setGastos(prev => prev.filter(g => g.id !== id));
+    toast.success('Gasto eliminado');
+  };
+
+  // ── Horas handlers ────────────────────────────────────────────────────────
   const agregarHora = async () => {
     if (!nuevaFila.trabajador.trim()) { toast.error('Introduce el nombre del trabajador'); return; }
     setIsSavingHora(true);
@@ -302,14 +380,14 @@ export default function PipelinePage() {
   const totalHoras       = horas.reduce((s, h) => s + parseFloat(h.horas || 0), 0);
   const totalJornadas    = totalHoras / 8;
   const costeMO          = totalJornadas * 150;
+  const totalGastos      = gastos.reduce((s, g) => s + parseFloat(g.total || 0), 0);
   const presupuestoTotal = selectedObra?.total_presupuesto || 0;
-  const beneficio        = presupuestoTotal - costeMO;
+  const beneficio        = presupuestoTotal - costeMO - totalGastos;
   const margen           = presupuestoTotal > 0 ? (beneficio / presupuestoTotal) * 100 : 0;
 
   // ── Tab contents ──────────────────────────────────────────────────────────
   const TabBitacora = () => (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-      {/* Form */}
       <div className="w-full md:w-2/5 p-8 border-r border-zinc-200 flex flex-col gap-6 overflow-y-auto">
         <div className="flex items-center gap-3 text-[#295693]">
           <MessageSquare size={18} />
@@ -337,8 +415,6 @@ export default function PipelinePage() {
           {isSavingNote ? <Loader2 className="animate-spin" /> : 'Publicar en Bitácora'}
         </button>
       </div>
-
-      {/* Entries */}
       <div className="w-full md:w-3/5 p-8 bg-white overflow-y-auto space-y-6">
         <div className="flex items-center gap-3 text-zinc-400 mb-2">
           <Clock size={18} /><h3 className="font-black uppercase text-[11px] tracking-[0.2em] italic">Bitácora</h3>
@@ -371,7 +447,6 @@ export default function PipelinePage() {
     const partidas: any[] = presupuestoVinculado?.partidas_json || [];
     return (
       <div className="p-8 space-y-8 overflow-y-auto">
-        {/* Vincular */}
         {!selectedObra?.presupuesto_vinculado_id ? (
           <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-8 space-y-5">
             <div className="flex items-center gap-3 text-[#295693]">
@@ -379,9 +454,7 @@ export default function PipelinePage() {
               <h3 className="font-black uppercase text-[11px] tracking-[0.2em]">Vincular presupuesto del CRM</h3>
             </div>
             <div className="relative">
-              <select
-                value={presupuestoSelId}
-                onChange={e => setPresupuestoSelId(e.target.value)}
+              <select value={presupuestoSelId} onChange={e => setPresupuestoSelId(e.target.value)}
                 className="w-full bg-white border-2 border-blue-200 rounded-[1.5rem] p-4 font-bold text-zinc-800 outline-none appearance-none cursor-pointer"
               >
                 <option value="">Selecciona un presupuesto...</option>
@@ -393,9 +466,7 @@ export default function PipelinePage() {
               </select>
               <ChevronDown size={18} className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-blue-400" />
             </div>
-            <button
-              onClick={vincularPresupuesto}
-              disabled={!presupuestoSelId || isLinking}
+            <button onClick={vincularPresupuesto} disabled={!presupuestoSelId || isLinking}
               className="bg-[#295693] text-white px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest disabled:opacity-50 flex items-center gap-2"
             >
               {isLinking ? <Loader2 className="animate-spin" size={16} /> : <Link2 size={16} />}
@@ -404,7 +475,6 @@ export default function PipelinePage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Info vinculado */}
             <div className="bg-green-50 border-2 border-green-100 rounded-[2rem] p-6 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="bg-green-100 p-3 rounded-2xl"><FileText size={20} className="text-green-600" /></div>
@@ -417,9 +487,7 @@ export default function PipelinePage() {
                 </div>
               </div>
               {!selectedObra?.presupuesto_modificado && (
-                <button
-                  onClick={duplicarPresupuesto}
-                  disabled={isDuplicating || !presupuestoVinculado}
+                <button onClick={duplicarPresupuesto} disabled={isDuplicating || !presupuestoVinculado}
                   className="flex items-center gap-2 bg-white border-2 border-zinc-200 text-zinc-700 px-5 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:border-blue-400 transition-all disabled:opacity-50"
                 >
                   {isDuplicating ? <Loader2 className="animate-spin" size={14} /> : <Copy size={14} />}
@@ -427,8 +495,6 @@ export default function PipelinePage() {
                 </button>
               )}
             </div>
-
-            {/* Aviso copia */}
             {selectedObra?.presupuesto_modificado && (
               <div className="bg-amber-50 border-2 border-amber-100 rounded-2xl p-4 flex items-center gap-3">
                 <Copy size={16} className="text-amber-500 shrink-0" />
@@ -438,8 +504,6 @@ export default function PipelinePage() {
                 </p>
               </div>
             )}
-
-            {/* Tabla partidas */}
             {partidas.length > 0 && (
               <div className="space-y-3">
                 <h4 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">
@@ -484,6 +548,168 @@ export default function PipelinePage() {
     );
   };
 
+  const TabGastos = () => {
+    const totalGastoTab = gastos.reduce((s, g) => s + parseFloat(g.total || 0), 0);
+    return (
+      <div className="p-8 space-y-8 overflow-y-auto">
+        {/* Upload */}
+        <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-8 space-y-5">
+          <div className="flex items-center gap-3 text-[#295693]">
+            <Receipt size={20} />
+            <h3 className="font-black uppercase text-[11px] tracking-[0.2em]">Añadir factura de material</h3>
+          </div>
+          <p className="text-[11px] text-zinc-500 font-bold">
+            Sube un PDF de factura de proveedor. Gemini extraerá automáticamente el proveedor, importe y líneas de material.
+          </p>
+          <input
+            ref={facturaInputRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={handleSeleccionarFactura}
+          />
+          <button
+            onClick={() => facturaInputRef.current?.click()}
+            disabled={isAnalyzing}
+            className="flex items-center gap-3 bg-[#295693] text-white px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest disabled:opacity-50 hover:bg-blue-700 transition-all"
+          >
+            {isAnalyzing ? (
+              <><Loader2 className="animate-spin" size={16} /> Analizando con IA...</>
+            ) : (
+              <><Upload size={16} /> Subir factura PDF</>
+            )}
+          </button>
+        </div>
+
+        {/* Preview factura */}
+        {facturaPreview && (
+          <div className="bg-white border-2 border-amber-200 rounded-[2rem] p-6 space-y-5 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-100 p-3 rounded-2xl"><Receipt size={20} className="text-amber-600" /></div>
+                <div>
+                  <p className="font-black text-zinc-900 text-base">{facturaPreview.proveedor}</p>
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">
+                    Factura {facturaPreview.numero_factura} · {facturaPreview.fecha}
+                    {facturaPreview.referencia_obra && ` · ${facturaPreview.referencia_obra}`}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setFacturaPreview(null)}
+                className="p-2 text-zinc-300 hover:text-zinc-600 rounded-xl transition-all"
+              ><X size={18} /></button>
+            </div>
+
+            {/* Líneas */}
+            {facturaPreview.lineas_factura?.length > 0 && (
+              <div className="rounded-2xl overflow-hidden border border-zinc-100">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-zinc-50">
+                      <th className="text-left p-3 font-black uppercase text-zinc-400 tracking-wider">Descripción</th>
+                      <th className="text-right p-3 font-black uppercase text-zinc-400 tracking-wider">Ud</th>
+                      <th className="text-right p-3 font-black uppercase text-zinc-400 tracking-wider">Cant.</th>
+                      <th className="text-right p-3 font-black uppercase text-zinc-400 tracking-wider">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facturaPreview.lineas_factura.slice(0, 6).map((l: any, i: number) => (
+                      <tr key={i} className="border-t border-zinc-50">
+                        <td className="p-3 text-zinc-700 font-medium max-w-[260px] truncate">{l.descripcion}</td>
+                        <td className="p-3 text-right text-zinc-400">{l.unidad}</td>
+                        <td className="p-3 text-right text-zinc-500">{l.cantidad}</td>
+                        <td className="p-3 text-right font-black text-zinc-800">{fmt(l.importe || 0)}</td>
+                      </tr>
+                    ))}
+                    {facturaPreview.lineas_factura.length > 6 && (
+                      <tr><td colSpan={4} className="p-3 text-center text-zinc-400 text-[10px] font-bold italic">
+                        +{facturaPreview.lineas_factura.length - 6} líneas más
+                      </td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Totales */}
+            <div className="bg-zinc-50 rounded-2xl p-4 flex justify-between items-center">
+              <div className="space-y-1 text-xs text-zinc-500 font-bold">
+                <p>Base imponible: {fmt(facturaPreview.base_imponible || 0)}</p>
+                <p>IVA ({facturaPreview.iva_porcentaje}%): {fmt(facturaPreview.iva_total || 0)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] font-black uppercase text-zinc-400 tracking-wider">Total factura</p>
+                <p className="text-3xl font-black text-[#295693]">{fmt(facturaPreview.total || 0)}</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setFacturaPreview(null)}
+                className="flex-1 py-4 border-2 border-zinc-200 rounded-2xl font-black text-[10px] uppercase text-zinc-500 hover:border-zinc-400 transition-all"
+              >Descartar</button>
+              <button onClick={handleGuardarGasto} disabled={isSavingGasto}
+                className="flex-1 py-4 bg-[#295693] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex justify-center items-center gap-2 disabled:opacity-50"
+              >
+                {isSavingGasto ? <Loader2 className="animate-spin" size={14} /> : <><CheckCircle2 size={14} /> Confirmar y guardar</>}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Lista de gastos */}
+        {gastos.length > 0 ? (
+          <div className="space-y-3">
+            <h4 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+              {gastos.length} factura{gastos.length !== 1 ? 's' : ''} registrada{gastos.length !== 1 ? 's' : ''}
+            </h4>
+            <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-100">
+                    <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Proveedor</th>
+                    <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Factura</th>
+                    <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
+                    <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Total</th>
+                    <th className="p-4"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gastos.map(g => (
+                    <tr key={g.id} className="border-b border-zinc-50 hover:bg-zinc-50/50">
+                      <td className="p-4 font-black text-zinc-800">{g.proveedor}</td>
+                      <td className="p-4 text-zinc-500 text-xs">{g.numero_factura}</td>
+                      <td className="p-4 text-zinc-500 text-xs">
+                        {g.fecha ? new Date(g.fecha + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                      </td>
+                      <td className="p-4 text-right font-black text-[#295693]">{fmt(g.total || 0)}</td>
+                      <td className="p-4 text-right">
+                        <button onClick={() => eliminarGasto(g.id)}
+                          className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        ><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-[#295693]">
+                    <td colSpan={3} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Total materiales</td>
+                    <td className="p-4 text-right font-black text-white text-lg">{fmt(totalGastoTab)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        ) : !facturaPreview && (
+          <div className="text-center py-16 border-4 border-dashed border-zinc-100 rounded-[3rem]">
+            <Package size={32} className="text-zinc-200 mx-auto mb-3" />
+            <p className="text-zinc-300 italic font-black uppercase text-xs tracking-[0.4em]">Sin facturas de material</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const TabProximamente = ({ label }: { label: string }) => (
     <div className="flex-1 flex items-center justify-center p-12">
       <div className="text-center space-y-4">
@@ -497,13 +723,11 @@ export default function PipelinePage() {
   );
 
   const TabHoras = () => {
-    const totalH    = horas.reduce((s, h) => s + parseFloat(h.horas || 0), 0);
-    const jornadas  = totalH / 8;
-    const coste     = jornadas * 150;
-
+    const totalH   = horas.reduce((s, h) => s + parseFloat(h.horas || 0), 0);
+    const jornadas = totalH / 8;
+    const coste    = jornadas * 150;
     return (
       <div className="p-8 space-y-8 overflow-y-auto">
-        {/* Añadir fila */}
         <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-6 space-y-4">
           <h3 className="font-black text-[11px] uppercase tracking-[0.2em] text-[#295693] flex items-center gap-2">
             <PlusCircle size={16} /> Añadir registro
@@ -511,16 +735,14 @@ export default function PipelinePage() {
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Fecha</label>
-              <input
-                type="date" value={nuevaFila.fecha}
+              <input type="date" value={nuevaFila.fecha}
                 onChange={e => setNuevaFila({ ...nuevaFila, fecha: e.target.value })}
                 className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
               />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Trabajador</label>
-              <input
-                type="text" placeholder="Nombre..." value={nuevaFila.trabajador}
+              <input type="text" placeholder="Nombre..." value={nuevaFila.trabajador}
                 onChange={e => setNuevaFila({ ...nuevaFila, trabajador: e.target.value })}
                 onKeyDown={e => e.key === 'Enter' && agregarHora()}
                 className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
@@ -528,67 +750,61 @@ export default function PipelinePage() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Horas</label>
-              <input
-                type="number" step="0.5" min="0.5" max="24" value={nuevaFila.horas}
+              <input type="number" step="0.5" min="0.5" max="24" value={nuevaFila.horas}
                 onChange={e => setNuevaFila({ ...nuevaFila, horas: parseFloat(e.target.value) })}
                 className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
               />
             </div>
           </div>
-          <button
-            onClick={agregarHora} disabled={isSavingHora}
+          <button onClick={agregarHora} disabled={isSavingHora}
             className="bg-[#295693] text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
           >
             {isSavingHora ? <Loader2 className="animate-spin" size={14} /> : <PlusCircle size={14} />}
             Añadir
           </button>
         </div>
-
-        {/* Tabla */}
         {horas.length > 0 ? (
-          <div className="space-y-3">
-            <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-zinc-50 border-b border-zinc-100">
-                    <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
-                    <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Trabajador</th>
-                    <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Horas</th>
-                    <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Jornadas</th>
-                    <th className="p-4"></th>
+          <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-100">
+                  <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Fecha</th>
+                  <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Trabajador</th>
+                  <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Horas</th>
+                  <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Jornadas</th>
+                  <th className="p-4"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {horas.map(h => (
+                  <tr key={h.id} className="border-b border-zinc-50 hover:bg-zinc-50/50">
+                    <td className="p-4 text-zinc-600 font-medium">
+                      {new Date(h.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    </td>
+                    <td className="p-4 font-black text-zinc-800">{h.trabajador}</td>
+                    <td className="p-4 text-right font-bold text-zinc-600">{h.horas}h</td>
+                    <td className="p-4 text-right text-zinc-500 text-xs">{(h.horas / 8).toFixed(2)}</td>
+                    <td className="p-4 text-right">
+                      <button onClick={() => eliminarHora(h.id)}
+                        className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                      ><Trash2 size={14} /></button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {horas.map(h => (
-                    <tr key={h.id} className="border-b border-zinc-50 hover:bg-zinc-50/50">
-                      <td className="p-4 text-zinc-600 font-medium">
-                        {new Date(h.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      </td>
-                      <td className="p-4 font-black text-zinc-800">{h.trabajador}</td>
-                      <td className="p-4 text-right font-bold text-zinc-600">{h.horas}h</td>
-                      <td className="p-4 text-right text-zinc-500 text-xs">{(h.horas / 8).toFixed(2)}</td>
-                      <td className="p-4 text-right">
-                        <button onClick={() => eliminarHora(h.id)}
-                          className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                        ><Trash2 size={14} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-zinc-800">
-                    <td colSpan={2} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Total</td>
-                    <td className="p-4 text-right font-black text-white">{totalH}h</td>
-                    <td className="p-4 text-right font-black text-zinc-300">{jornadas.toFixed(2)} jornadas</td>
-                    <td></td>
-                  </tr>
-                  <tr className="bg-[#295693]">
-                    <td colSpan={4} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Coste estimado mano de obra (150€/jornada)</td>
-                    <td className="p-4 text-right font-black text-white text-lg">{fmt(coste)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-zinc-800">
+                  <td colSpan={2} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Total</td>
+                  <td className="p-4 text-right font-black text-white">{totalH}h</td>
+                  <td className="p-4 text-right font-black text-zinc-300">{jornadas.toFixed(2)} jornadas</td>
+                  <td></td>
+                </tr>
+                <tr className="bg-[#295693]">
+                  <td colSpan={4} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Coste estimado mano de obra (150€/jornada)</td>
+                  <td className="p-4 text-right font-black text-white text-lg">{fmt(coste)}</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         ) : (
           <div className="text-center py-16 border-4 border-dashed border-zinc-100 rounded-[3rem]">
@@ -636,7 +852,7 @@ export default function PipelinePage() {
             <p className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400">Presupuesto total</p>
             <p className="text-3xl font-black text-[#295693] tracking-tighter">{fmt(presupuestoTotal)}</p>
             {!selectedObra?.presupuesto_vinculado_id && (
-              <p className="text-[9px] text-amber-500 font-bold">Vincula un presupuesto para ver el importe</p>
+              <p className="text-[9px] text-amber-500 font-bold">Vincula un presupuesto en la pestaña Presupuesto</p>
             )}
           </div>
           <div className="bg-white border-2 border-zinc-100 rounded-[2rem] p-6 space-y-2">
@@ -646,8 +862,8 @@ export default function PipelinePage() {
           </div>
           <div className="bg-white border-2 border-zinc-100 rounded-[2rem] p-6 space-y-2">
             <p className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400">Gastos de material</p>
-            <p className="text-3xl font-black text-zinc-800 tracking-tighter">{fmt(0)}</p>
-            <p className="text-[9px] text-zinc-400 font-bold">Disponible próximamente</p>
+            <p className="text-3xl font-black text-zinc-800 tracking-tighter">{fmt(totalGastos)}</p>
+            <p className="text-[9px] text-zinc-400 font-bold">{gastos.length} factura{gastos.length !== 1 ? 's' : ''} registrada{gastos.length !== 1 ? 's' : ''}</p>
           </div>
           <div className={`border-2 rounded-[2rem] p-6 space-y-2 ${esBeneficioso ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
             <p className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400">Beneficio estimado</p>
@@ -667,8 +883,8 @@ export default function PipelinePage() {
         <div className="bg-zinc-50 border border-zinc-100 rounded-[2rem] p-6 space-y-4">
           <h3 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">Desglose de costes</h3>
           {[
-            { label: 'Mano de obra', value: costeMO, color: '#295693' },
-            { label: 'Materiales', value: 0, color: '#64748b' },
+            { label: 'Mano de obra', value: costeMO,      color: '#295693' },
+            { label: 'Materiales',   value: totalGastos,  color: '#64748b' },
           ].map(item => (
             <div key={item.label} className="space-y-1">
               <div className="flex justify-between text-[10px] font-black uppercase text-zinc-600">
@@ -676,13 +892,10 @@ export default function PipelinePage() {
                 <span>{fmt(item.value)}</span>
               </div>
               <div className="h-2 bg-zinc-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: presupuestoTotal > 0 ? `${Math.min((item.value / presupuestoTotal) * 100, 100)}%` : '0%',
-                    backgroundColor: item.color,
-                  }}
-                />
+                <div className="h-full rounded-full transition-all" style={{
+                  width: presupuestoTotal > 0 ? `${Math.min((item.value / presupuestoTotal) * 100, 100)}%` : '0%',
+                  backgroundColor: item.color,
+                }} />
               </div>
             </div>
           ))}
@@ -734,7 +947,6 @@ export default function PipelinePage() {
                   <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(obra.id); }}
                     className="absolute top-4 right-4 p-2 text-zinc-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                   ><Trash2 size={16} /></button>
-
                   <div onClick={() => abrirObra(obra)} className="cursor-pointer">
                     <h3 className="font-black text-zinc-900 leading-[1.1] text-xl mb-5 group-hover:text-blue-600 transition-colors uppercase italic break-words pr-8">
                       {obra.titulo}
@@ -776,14 +988,14 @@ export default function PipelinePage() {
 
       {/* MODAL CONFIRMAR BORRADO */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-[10004] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[10004] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl space-y-6">
             <div className="text-center">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Trash2 size={28} className="text-red-500" />
               </div>
               <h3 className="text-2xl font-black text-zinc-900 uppercase italic">¿Eliminar Obra?</h3>
-              <p className="text-zinc-500 text-sm mt-2">Se eliminarán también todos los seguimientos y registros de horas.</p>
+              <p className="text-zinc-500 text-sm mt-2">Se eliminarán también todos los seguimientos, horas y gastos.</p>
             </div>
             <div className="flex gap-4">
               <button onClick={() => setConfirmDeleteId(null)}
@@ -799,8 +1011,8 @@ export default function PipelinePage() {
 
       {/* MODAL CREAR OBRA */}
       {isCrearModalOpen && (
-        <div className="fixed inset-0 z-[10003] flex items-center justify-center bg-[#1e3d6b]/95 backdrop-blur-xl p-4 animate-in fade-in">
-          <div className="bg-white w-full max-w-md rounded-[4rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[10003] flex items-center justify-center bg-[#1e3d6b]/95 backdrop-blur-xl p-4">
+          <div className="bg-white w-full max-w-md rounded-[4rem] shadow-2xl overflow-hidden">
             <div className="bg-[#295693] p-10 text-white flex justify-between items-center">
               <div>
                 <h2 className="text-3xl font-black italic uppercase tracking-tighter">Nueva Obra</h2>
@@ -813,8 +1025,7 @@ export default function PipelinePage() {
             <div className="p-10 space-y-6 bg-zinc-50/50">
               <div className="space-y-3">
                 <label className="text-[11px] font-black uppercase text-[#295693] ml-4 tracking-widest italic">Nombre de la Obra</label>
-                <input
-                  type="text" placeholder="Ej: Reforma Calle Mayor, 5"
+                <input type="text" placeholder="Ej: Reforma Calle Mayor, 5"
                   className="w-full bg-white border-2 border-zinc-100 rounded-[2rem] p-5 text-zinc-800 outline-none focus:border-blue-500 font-bold text-lg"
                   value={nuevaObra.titulo}
                   onChange={e => setNuevaObra({ ...nuevaObra, titulo: e.target.value })}
@@ -844,10 +1055,10 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {/* MODAL DETALLE OBRA (TABS) */}
+      {/* MODAL DETALLE OBRA */}
       {selectedObra && (
-        <div className="fixed inset-0 z-[10002] flex items-end sm:items-center justify-center bg-[#1e3d6b]/95 backdrop-blur-md p-0 sm:p-6 animate-in fade-in">
-          <div className="bg-white w-full max-w-6xl h-[95vh] sm:h-[90vh] rounded-t-[4rem] sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-10">
+        <div className="fixed inset-0 z-[10002] flex items-end sm:items-center justify-center bg-[#1e3d6b]/95 backdrop-blur-md p-0 sm:p-6">
+          <div className="bg-white w-full max-w-6xl h-[95vh] sm:h-[90vh] rounded-t-[4rem] sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden">
             {/* Header */}
             <div className="bg-[#295693] p-8 sm:p-10 text-white flex justify-between items-center shrink-0">
               <div className="space-y-1">
@@ -882,6 +1093,12 @@ export default function PipelinePage() {
                   }`}
                 >
                   <Icon size={13} />{label}
+                  {id === 'gastos' && gastos.length > 0 && (
+                    <span className="bg-[#295693] text-white text-[8px] px-1.5 py-0.5 rounded-full font-black ml-1">{gastos.length}</span>
+                  )}
+                  {id === 'horas' && horas.length > 0 && (
+                    <span className="bg-zinc-400 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black ml-1">{horas.length}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -890,7 +1107,7 @@ export default function PipelinePage() {
             <div className="flex-1 overflow-y-auto bg-zinc-50 flex flex-col">
               {activeTab === 'bitacora'    && <TabBitacora />}
               {activeTab === 'presupuesto' && <TabPresupuesto />}
-              {activeTab === 'gastos'      && <TabProximamente label="Gastos de Material" />}
+              {activeTab === 'gastos'      && <TabGastos />}
               {activeTab === 'mediciones'  && <TabProximamente label="Mediciones Reales" />}
               {activeTab === 'horas'       && <TabHoras />}
               {activeTab === 'analisis'    && <TabAnalisis />}
