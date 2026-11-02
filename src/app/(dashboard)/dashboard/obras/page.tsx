@@ -71,9 +71,15 @@ export default function PipelinePage() {
   // ── Gastos ────────────────────────────────────────────────────────────────
   const [gastos, setGastos]                   = useState<any[]>([]);
   const [facturaPreview, setFacturaPreview]   = useState<any>(null);
+  const [obraSeleccionada, setObraSeleccionada] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing]         = useState(false);
   const [isSavingGasto, setIsSavingGasto]     = useState(false);
   const facturaInputRef                       = useRef<HTMLInputElement>(null);
+
+  // ── Mediciones ────────────────────────────────────────────────────────────
+  const [mediciones, setMediciones]           = useState<any[]>([]);
+  const [nuevaMedicion, setNuevaMedicion]     = useState({ descripcion: '', ml: 0, alto: 0 });
+  const [isSavingMedicion, setIsSavingMedicion] = useState(false);
 
   // ── Horas ─────────────────────────────────────────────────────────────────
   const [horas, setHoras]         = useState<any[]>([]);
@@ -121,6 +127,7 @@ export default function PipelinePage() {
       loadSeguimientos(obra.id),
       loadHoras(obra.id),
       loadGastos(obra.id),
+      loadMediciones(obra.id),
       loadPresupuestosLista(),
       obra.presupuesto_vinculado_id
         ? loadPresupuestoVinculado(obra.presupuesto_vinculado_id)
@@ -163,6 +170,13 @@ export default function PipelinePage() {
     if (!error) setGastos(data || []);
   };
 
+  const loadMediciones = async (obraId: string) => {
+    const { data, error } = await supabase
+      .from('obra_mediciones').select('*').eq('obra_id', obraId)
+      .order('created_at', { ascending: true });
+    if (!error) setMediciones(data || []);
+  };
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleCrearObra = async () => {
     if (!nuevaObra.titulo || !nuevaObra.cliente_id) {
@@ -189,6 +203,7 @@ export default function PipelinePage() {
       await supabase.from('obra_seguimiento').delete().eq('obra_id', id);
       await supabase.from('obra_horas').delete().eq('obra_id', id);
       await supabase.from('obra_gastos_material').delete().eq('obra_id', id);
+      await supabase.from('obra_mediciones').delete().eq('obra_id', id);
       const { error } = await supabase.from('obras').delete().eq('id', id);
       if (error) throw error;
       toast.success('Obra eliminada');
@@ -281,6 +296,7 @@ export default function PipelinePage() {
 
     setIsAnalyzing(true);
     setFacturaPreview(null);
+    setObraSeleccionada(null);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -288,7 +304,16 @@ export default function PipelinePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al analizar');
       setFacturaPreview(json.factura);
-      toast.success('Factura analizada. Revisa y confirma.');
+      // Si solo hay una obra detectada, la preseleccionamos
+      if (json.factura.obras_detectadas?.length === 1) {
+        setObraSeleccionada(json.factura.obras_detectadas[0]);
+      }
+      const nObras = json.factura.obras_detectadas?.length || 0;
+      if (nObras > 1) {
+        toast.success(`Factura analizada. Se detectaron ${nObras} obras — selecciona cuál corresponde a esta.`);
+      } else {
+        toast.success('Factura analizada. Revisa y confirma.');
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -301,27 +326,59 @@ export default function PipelinePage() {
     if (!facturaPreview) return;
     setIsSavingGasto(true);
     try {
+      const multiObra = (facturaPreview.obras_detectadas?.length || 0) > 1;
+      const totalAGuardar = multiObra && obraSeleccionada
+        ? obraSeleccionada.subtotal
+        : facturaPreview.total;
       const { error } = await supabase.from('obra_gastos_material').insert([{
         obra_id: selectedObra.id,
         proveedor: facturaPreview.proveedor,
         numero_factura: facturaPreview.numero_factura,
         fecha: facturaPreview.fecha,
-        concepto: facturaPreview.referencia_obra || 'Material de obra',
-        base_imponible: facturaPreview.base_imponible,
+        concepto: obraSeleccionada?.nombre_obra || facturaPreview.referencia_obra || 'Material de obra',
+        base_imponible: multiObra ? (totalAGuardar / 1.21) : facturaPreview.base_imponible,
         iva_porcentaje: facturaPreview.iva_porcentaje,
-        iva_total: facturaPreview.iva_total,
-        total: facturaPreview.total,
+        iva_total: multiObra ? (totalAGuardar - totalAGuardar / 1.21) : facturaPreview.iva_total,
+        total: totalAGuardar,
         lineas_json: facturaPreview.lineas_factura,
       }]);
       if (error) throw error;
       toast.success('Gasto guardado');
       setFacturaPreview(null);
+      setObraSeleccionada(null);
       loadGastos(selectedObra.id);
     } catch (e: any) {
       toast.error('Error: ' + e.message);
     } finally {
       setIsSavingGasto(false);
     }
+  };
+
+  // ── Mediciones handlers ───────────────────────────────────────────────────
+  const agregarMedicion = async () => {
+    if (!nuevaMedicion.descripcion.trim()) { toast.error('Introduce una descripción'); return; }
+    setIsSavingMedicion(true);
+    try {
+      const { error } = await supabase.from('obra_mediciones').insert([{
+        obra_id: selectedObra.id,
+        descripcion: nuevaMedicion.descripcion,
+        ml: nuevaMedicion.ml,
+        alto: nuevaMedicion.alto,
+      }]);
+      if (error) throw error;
+      setNuevaMedicion({ descripcion: '', ml: 0, alto: 0 });
+      loadMediciones(selectedObra.id);
+    } catch {
+      toast.error('Error al guardar');
+    } finally {
+      setIsSavingMedicion(false);
+    }
+  };
+
+  const eliminarMedicion = async (id: string) => {
+    const { error } = await supabase.from('obra_mediciones').delete().eq('id', id);
+    if (error) { toast.error('Error al eliminar'); return; }
+    setMediciones(prev => prev.filter(m => m.id !== id));
   };
 
   const eliminarGasto = async (id: string) => {
@@ -643,11 +700,38 @@ export default function PipelinePage() {
               </div>
             </div>
 
+            {/* Selector multi-obra */}
+            {(facturaPreview.obras_detectadas?.length || 0) > 1 && (
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 space-y-3">
+                <p className="text-[11px] font-black text-amber-700 uppercase tracking-wider flex items-center gap-2">
+                  <AlertTriangle size={14} />
+                  Esta factura contiene {facturaPreview.obras_detectadas.length} obras — selecciona cuál corresponde a esta
+                </p>
+                <div className="grid gap-2">
+                  {facturaPreview.obras_detectadas.map((o: any, i: number) => (
+                    <button key={i}
+                      onClick={() => setObraSeleccionada(o)}
+                      className={`flex justify-between items-center p-4 rounded-2xl border-2 text-left transition-all ${
+                        obraSeleccionada?.nombre_obra === o.nombre_obra
+                          ? 'border-[#295693] bg-blue-50'
+                          : 'border-zinc-200 bg-white hover:border-blue-200'
+                      }`}
+                    >
+                      <span className="font-black text-zinc-800 text-sm">{o.nombre_obra}</span>
+                      <span className="font-black text-[#295693] text-lg">{fmt(o.subtotal || 0)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
-              <button onClick={() => setFacturaPreview(null)}
+              <button onClick={() => { setFacturaPreview(null); setObraSeleccionada(null); }}
                 className="flex-1 py-4 border-2 border-zinc-200 rounded-2xl font-black text-[10px] uppercase text-zinc-500 hover:border-zinc-400 transition-all"
               >Descartar</button>
-              <button onClick={handleGuardarGasto} disabled={isSavingGasto}
+              <button
+                onClick={handleGuardarGasto}
+                disabled={isSavingGasto || ((facturaPreview.obras_detectadas?.length || 0) > 1 && !obraSeleccionada)}
                 className="flex-1 py-4 bg-[#295693] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex justify-center items-center gap-2 disabled:opacity-50"
               >
                 {isSavingGasto ? <Loader2 className="animate-spin" size={14} /> : <><CheckCircle2 size={14} /> Confirmar y guardar</>}
@@ -704,6 +788,119 @@ export default function PipelinePage() {
           <div className="text-center py-16 border-4 border-dashed border-zinc-100 rounded-[3rem]">
             <Package size={32} className="text-zinc-200 mx-auto mb-3" />
             <p className="text-zinc-300 italic font-black uppercase text-xs tracking-[0.4em]">Sin facturas de material</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const TabMediciones = () => {
+    const totalM2 = mediciones.reduce((s, m) => s + (parseFloat(m.ml || 0) * parseFloat(m.alto || 0)), 0);
+    return (
+      <div className="p-8 space-y-8 overflow-y-auto">
+        {/* Formulario añadir */}
+        <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-6 space-y-4">
+          <h3 className="font-black text-[11px] uppercase tracking-[0.2em] text-[#295693] flex items-center gap-2">
+            <PlusCircle size={16} /> Nueva medición
+          </h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-3 sm:col-span-1 space-y-2">
+              <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Descripción</label>
+              <input
+                type="text"
+                placeholder="Ej: Pared norte, Suelo cocina..."
+                value={nuevaMedicion.descripcion}
+                onChange={e => setNuevaMedicion({ ...nuevaMedicion, descripcion: e.target.value })}
+                className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">ML (longitud)</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={nuevaMedicion.ml || ''}
+                placeholder="0.00"
+                onChange={e => setNuevaMedicion({ ...nuevaMedicion, ml: parseFloat(e.target.value) || 0 })}
+                className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Alto (m)</label>
+              <input
+                type="number" step="0.01" min="0"
+                value={nuevaMedicion.alto || ''}
+                placeholder="0.00"
+                onChange={e => setNuevaMedicion({ ...nuevaMedicion, alto: parseFloat(e.target.value) || 0 })}
+                onKeyDown={e => e.key === 'Enter' && agregarMedicion()}
+                className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
+              />
+            </div>
+          </div>
+          {/* Preview del cálculo */}
+          {(nuevaMedicion.ml > 0 || nuevaMedicion.alto > 0) && (
+            <div className="bg-white border border-blue-200 rounded-2xl px-5 py-3 flex items-center justify-between">
+              <span className="text-[11px] font-bold text-zinc-500">
+                {nuevaMedicion.ml} ml × {nuevaMedicion.alto} m
+              </span>
+              <span className="font-black text-[#295693] text-xl">
+                = {(nuevaMedicion.ml * nuevaMedicion.alto).toFixed(4)} m²
+              </span>
+            </div>
+          )}
+          <button
+            onClick={agregarMedicion}
+            disabled={isSavingMedicion}
+            className="bg-[#295693] text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSavingMedicion ? <Loader2 className="animate-spin" size={14} /> : <PlusCircle size={14} />}
+            Añadir medición
+          </button>
+        </div>
+
+        {/* Tabla de mediciones */}
+        {mediciones.length > 0 ? (
+          <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-100">
+                  <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Descripción</th>
+                  <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">ML</th>
+                  <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Alto (m)</th>
+                  <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Total m²</th>
+                  <th className="p-4"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {mediciones.map(m => {
+                  const total = parseFloat(m.ml || 0) * parseFloat(m.alto || 0);
+                  return (
+                    <tr key={m.id} className="border-b border-zinc-50 hover:bg-zinc-50/50">
+                      <td className="p-4 font-black text-zinc-800">{m.descripcion}</td>
+                      <td className="p-4 text-right font-bold text-zinc-600">{parseFloat(m.ml).toFixed(2)}</td>
+                      <td className="p-4 text-right font-bold text-zinc-600">{parseFloat(m.alto).toFixed(2)}</td>
+                      <td className="p-4 text-right font-black text-[#295693] text-base">{total.toFixed(4)} m²</td>
+                      <td className="p-4 text-right">
+                        <button onClick={() => eliminarMedicion(m.id)}
+                          className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                        ><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-[#295693]">
+                  <td colSpan={3} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Total medición real</td>
+                  <td className="p-4 text-right font-black text-white text-lg">{totalM2.toFixed(4)} m²</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-16 border-4 border-dashed border-zinc-100 rounded-[3rem]">
+            <Ruler size={32} className="text-zinc-200 mx-auto mb-3" />
+            <p className="text-zinc-300 italic font-black uppercase text-xs tracking-[0.4em]">Sin mediciones registradas</p>
           </div>
         )}
       </div>
@@ -1099,6 +1296,9 @@ export default function PipelinePage() {
                   {id === 'horas' && horas.length > 0 && (
                     <span className="bg-zinc-400 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black ml-1">{horas.length}</span>
                   )}
+                  {id === 'mediciones' && mediciones.length > 0 && (
+                    <span className="bg-zinc-400 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black ml-1">{mediciones.length}</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -1108,7 +1308,7 @@ export default function PipelinePage() {
               {activeTab === 'bitacora'    && <TabBitacora />}
               {activeTab === 'presupuesto' && <TabPresupuesto />}
               {activeTab === 'gastos'      && <TabGastos />}
-              {activeTab === 'mediciones'  && <TabProximamente label="Mediciones Reales" />}
+              {activeTab === 'mediciones'  && <TabMediciones />}
               {activeTab === 'horas'       && <TabHoras />}
               {activeTab === 'analisis'    && <TabAnalisis />}
             </div>

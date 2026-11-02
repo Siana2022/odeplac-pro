@@ -74,10 +74,10 @@ export async function POST(req: Request) {
  
     const prompt = `
       Analiza esta factura de proveedor y extrae los datos en formato JSON.
-      
-      IMPORTANTE: Lee TODA la factura cuidadosamente. 
+
+      IMPORTANTE: Lee TODA la factura cuidadosamente.
       El proveedor es la EMPRESA QUE EMITE la factura (quien cobra), NO quien la recibe.
-      
+
       Devuelve EXCLUSIVAMENTE este JSON sin texto adicional:
       {
         "proveedor": "nombre completo de la empresa que emite la factura",
@@ -88,10 +88,17 @@ export async function POST(req: Request) {
         "iva_porcentaje": 21,
         "iva_total": 0.00,
         "total": 0.00,
+        "obras_detectadas": [
+          {
+            "nombre_obra": "nombre exacto del proyecto u obra tal como aparece en la factura",
+            "subtotal": 0.00
+          }
+        ],
         "lineas_factura": [
           {
             "codigo": "código artículo o null",
             "descripcion": "descripción completa del producto",
+            "obra_referencia": "nombre de la obra a la que pertenece esta línea, si se puede identificar, si no null",
             "cantidad": 0.00,
             "unidad": "M2 o ML o UDS o KG",
             "precio_unitario": 0.00,
@@ -100,7 +107,7 @@ export async function POST(req: Request) {
           }
         ]
       }
-      
+
       REGLAS:
       - proveedor: es quien EMITE la factura, quien aparece en el membrete/cabecera
       - Los importes deben ser números decimales, nunca strings
@@ -108,6 +115,11 @@ export async function POST(req: Request) {
       - base_imponible es el total SIN IVA
       - total es el importe FINAL con IVA incluido
       - No inventes datos que no estén en el PDF
+      - obras_detectadas: MUY IMPORTANTE — muchas facturas de construcción incluyen materiales
+        para VARIAS OBRAS a la vez, cada una con su nombre y subtotal. Busca agrupaciones por
+        nombre de proyecto/obra dentro de la factura. Si solo hay una obra o no se distinguen,
+        devuelve un array con un único elemento usando la referencia_obra como nombre.
+        Si no hay ninguna referencia de obra, devuelve array vacío [].
     `
  
     const result = await model.generateContent([
@@ -157,10 +169,19 @@ export async function POST(req: Request) {
       iva_porcentaje: parseFloat(factura.iva_porcentaje) || 21,
       iva_total: parseFloat(factura.iva_total) || 0,
       total: parseFloat(factura.total) || 0,
+      obras_detectadas: Array.isArray(factura.obras_detectadas)
+        ? factura.obras_detectadas
+            .filter((o: any) => o.nombre_obra)
+            .map((o: any) => ({
+              nombre_obra: o.nombre_obra?.trim(),
+              subtotal: parseFloat(o.subtotal) || 0,
+            }))
+        : [],
       lineas_factura: Array.isArray(factura.lineas_factura)
         ? factura.lineas_factura.map((l: any) => ({
             codigo: l.codigo || null,
             descripcion: l.descripcion?.trim() || 'Sin descripción',
+            obra_referencia: l.obra_referencia?.trim() || null,
             cantidad: parseFloat(l.cantidad) || 0,
             unidad: l.unidad?.trim() || 'UDS',
             precio_unitario: parseFloat(l.precio_unitario) || 0,
