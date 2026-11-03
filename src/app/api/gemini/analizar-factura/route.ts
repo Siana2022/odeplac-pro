@@ -56,8 +56,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No se recibió ningún archivo' }, { status: 400 })
     }
  
-    if (file.type !== 'application/pdf') {
-      return NextResponse.json({ error: 'Solo se aceptan archivos PDF' }, { status: 400 })
+    const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']
+    if (!ALLOWED_MIME.includes(file.type)) {
+      return NextResponse.json(
+        { error: 'Formato no admitido. Sube un PDF o una imagen (JPG, PNG, WEBP)' },
+        { status: 400 }
+      )
     }
  
     if (file.size > 10 * 1024 * 1024) {
@@ -68,12 +72,25 @@ export async function POST(req: Request) {
     const arrayBuffer = await file.arrayBuffer()
     const base64 = Buffer.from(arrayBuffer).toString('base64')
  
+    // Categoría opcional (proveedores | gasolina | alquiler | otros) para afinar el prompt
+    const categoria = String(formData.get('categoria') || 'proveedores')
+    const contextoCategoria: Record<string, string> = {
+      proveedores: 'Es una factura de un proveedor de materiales de construcción.',
+      gasolina: 'Es una factura o ticket de combustible (gasolinera). En "lineas_factura" indica el combustible y los litros como cantidad con unidad "L".',
+      alquiler: 'Es una factura o recibo de alquiler (por ejemplo, de la oficina o un local).',
+      otros: 'Es un gasto general de empresa (ropa laboral, tarjetas de visita, material de oficina, etc.).',
+    }
+    const contexto = contextoCategoria[categoria] || contextoCategoria.proveedores
+
     // 5. Llamar a Gemini
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
  
     const prompt = `
       Analiza esta factura de proveedor y extrae los datos en formato JSON.
+      El documento puede ser un PDF digital o un escaneo/foto de una factura en papel:
+      léelo con cuidado aunque tenga baja calidad, esté inclinado o sea manuscrito parcialmente.
+      ${contexto}
 
       IMPORTANTE: Lee TODA la factura cuidadosamente.
       El proveedor es la EMPRESA QUE EMITE la factura (quien cobra), NO quien la recibe.
@@ -114,7 +131,7 @@ export async function POST(req: Request) {
       - Si un campo no existe usa null
       - base_imponible es el total SIN IVA
       - total es el importe FINAL con IVA incluido
-      - No inventes datos que no estén en el PDF
+      - No inventes datos que no estén en el documento
       - obras_detectadas: MUY IMPORTANTE — muchas facturas de construcción incluyen materiales
         para VARIAS OBRAS a la vez, cada una con su nombre y subtotal. Busca agrupaciones por
         nombre de proyecto/obra dentro de la factura. Si solo hay una obra o no se distinguen,
@@ -126,7 +143,7 @@ export async function POST(req: Request) {
       {
         inlineData: {
           data: base64,
-          mimeType: 'application/pdf'
+          mimeType: file.type
         }
       },
       { text: prompt }

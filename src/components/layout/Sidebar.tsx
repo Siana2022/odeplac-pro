@@ -14,7 +14,7 @@ const menuItems = [
   { name: 'Clientes',          icon: Users,            href: '/dashboard/clientes' },
   { name: 'Materiales',        icon: Box,              href: '/dashboard/materiales' },
   { name: 'Proveedores',       icon: Truck,            href: '/dashboard/proveedores' },
-  { name: 'Gastos Material',   icon: Wallet,           href: '/dashboard/gastos' },
+  { name: 'Gastos',            icon: Wallet,           href: '/dashboard/gastos' },
   { name: 'Presupuestos',      icon: FileText,         href: '/dashboard/presupuestos' },
   { name: 'Pendientes',        icon: Clock,            href: '/dashboard/pendientes' },
   { name: 'Enviados',          icon: Send,             href: '/dashboard/enviados' },
@@ -24,7 +24,7 @@ const menuItems = [
   { name: 'Entrenar IA',       icon: GraduationCap,    href: '/dashboard/entrenamiento' },
   { name: 'Papelera',          icon: Trash2,           href: '/dashboard/papelera' },
   { name: 'Configuración',     icon: Settings,         href: '/dashboard/configuracion' },
-  { name: 'Escáner Planos',    icon: Ruler,            href: '/dashboard/escanner-planos' },
+  { name: 'Medición de Planos', icon: Ruler,           href: '/dashboard/planos' },
 ];
 
 interface SidebarProps {
@@ -52,7 +52,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
 
       <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = item.href === '/dashboard' ? pathname === item.href : pathname.startsWith(item.href);
           return (
             <Link
               key={item.name}
