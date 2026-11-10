@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const contextoCategoria: Record<string, string> = {
       proveedores: 'Es una factura de un proveedor de materiales de construcción.',
       gasolina: 'Es una factura o ticket de combustible (gasolinera). En "lineas_factura" indica el combustible y los litros como cantidad con unidad "L".',
-      alquiler: 'Es una factura o recibo de alquiler (por ejemplo, de la oficina o un local).',
+      alquiler: 'Es una factura o gasto de empresa (alquiler de oficina, gestoría, seguros, etc.).',
       otros: 'Es un gasto general de empresa (ropa laboral, tarjetas de visita, material de oficina, etc.).',
     }
     const contexto = contextoCategoria[categoria] || contextoCategoria.proveedores

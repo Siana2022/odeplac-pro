@@ -19,7 +19,7 @@ export const CATEGORIAS: CategoriaInfo[] = [
     text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', bar: 'bg-emerald-400' },
   { id: 'gasolina', label: 'Gasolina', descripcion: 'Tickets y facturas de combustible', Icon: Fuel,
     text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-400' },
-  { id: 'alquiler', label: 'Alquiler', descripcion: 'Alquiler de la oficina y gastos asociados', Icon: Building2,
+  { id: 'alquiler', label: 'Gastos de empresa', descripcion: 'Alquiler, gestoría, seguros y otros gastos de empresa', Icon: Building2,
     text: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30', bar: 'bg-sky-400' },
   { id: 'otros', label: 'Otros gastos', descripcion: 'Ropa laboral, tarjetas de visita, material de oficina...', Icon: ShoppingBag,
     text: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/30', bar: 'bg-fuchsia-400' },
