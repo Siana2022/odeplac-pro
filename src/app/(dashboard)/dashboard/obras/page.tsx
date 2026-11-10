@@ -76,6 +76,11 @@ export default function PipelinePage() {
   const [isSavingGasto, setIsSavingGasto]     = useState(false);
   const facturaInputRef                       = useRef<HTMLInputElement>(null);
 
+  // Cola de facturas (modo masivo)
+  type ColaGastoItem = { id: string; file: File; estado: 'pendiente'|'procesando'|'ok'|'error'; proveedor?: string; total?: number; error?: string };
+  const [colaGastos, setColaGastos]           = useState<ColaGastoItem[]>([]);
+  const procesandoColaRef                     = useRef(false);
+
   // ── Mediciones ────────────────────────────────────────────────────────────
   const [mediciones, setMediciones]           = useState<any[]>([]);
   const [nuevaMedicion, setNuevaMedicion]     = useState({ descripcion: '', ml: 0, alto: 0 });
@@ -290,36 +295,88 @@ export default function PipelinePage() {
 
   // ── Gastos handlers ───────────────────────────────────────────────────────
   const handleSeleccionarFactura = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type !== 'application/pdf') { toast.error('Solo se aceptan PDFs'); return; }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    if (facturaInputRef.current) facturaInputRef.current.value = '';
 
-    setIsAnalyzing(true);
-    setFacturaPreview(null);
-    setObraSeleccionada(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error al analizar');
-      setFacturaPreview(json.factura);
-      // Si solo hay una obra detectada, la preseleccionamos
-      if (json.factura.obras_detectadas?.length === 1) {
-        setObraSeleccionada(json.factura.obras_detectadas[0]);
+    // Modo individual: 1 archivo → preview como antes
+    if (files.length === 1) {
+      const file = files[0];
+      if (file.type !== 'application/pdf') { toast.error('Solo se aceptan PDFs'); return; }
+      setIsAnalyzing(true);
+      setFacturaPreview(null);
+      setObraSeleccionada(null);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Error al analizar');
+        setFacturaPreview(json.factura);
+        if (json.factura.obras_detectadas?.length === 1) setObraSeleccionada(json.factura.obras_detectadas[0]);
+        const nObras = json.factura.obras_detectadas?.length || 0;
+        if (nObras > 1) {
+          toast.success(`Factura analizada. Se detectaron ${nObras} obras — selecciona cuál corresponde a esta.`);
+        } else {
+          toast.success('Factura analizada. Revisa y confirma.');
+        }
+      } catch (e: any) {
+        toast.error(e.message);
+      } finally {
+        setIsAnalyzing(false);
       }
-      const nObras = json.factura.obras_detectadas?.length || 0;
-      if (nObras > 1) {
-        toast.success(`Factura analizada. Se detectaron ${nObras} obras — selecciona cuál corresponde a esta.`);
-      } else {
-        toast.success('Factura analizada. Revisa y confirma.');
-      }
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setIsAnalyzing(false);
-      if (facturaInputRef.current) facturaInputRef.current.value = '';
+      return;
     }
+
+    // Modo cola: varios archivos → guardar automáticamente uno a uno
+    const validos = files.filter(f => f.type === 'application/pdf');
+    if (!validos.length) { toast.error('Solo se aceptan PDFs'); return; }
+    if (validos.length < files.length) toast.warning(`${files.length - validos.length} archivo(s) ignorados (solo PDF)`);
+
+    const nuevos: ColaGastoItem[] = validos.map(f => ({ id: crypto.randomUUID(), file: f, estado: 'pendiente' as const }));
+    setColaGastos(prev => {
+      const actualizados = [...prev, ...nuevos];
+      if (!procesandoColaRef.current) ejecutarColaGastos(nuevos);
+      return actualizados;
+    });
+  };
+
+  const ejecutarColaGastos = async (items: ColaGastoItem[]) => {
+    if (!selectedObra) return;
+    procesandoColaRef.current = true;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      setColaGastos(prev => prev.map(x => x.id === item.id ? { ...x, estado: 'procesando' } : x));
+      try {
+        const fd = new FormData();
+        fd.append('file', item.file);
+        const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Error al analizar');
+        const f = json.factura;
+        const obraAuto = f.obras_detectadas?.[0];
+        const total = obraAuto ? obraAuto.subtotal : f.total;
+        const { error } = await supabase.from('obra_gastos_material').insert([{
+          obra_id: selectedObra.id,
+          proveedor: f.proveedor,
+          numero_factura: f.numero_factura,
+          fecha: f.fecha,
+          concepto: obraAuto?.nombre_obra || f.referencia_obra || 'Material de obra',
+          base_imponible: total / 1.21,
+          iva_porcentaje: f.iva_porcentaje,
+          iva_total: total - total / 1.21,
+          total,
+          lineas_json: f.lineas_factura,
+        }]);
+        if (error) throw error;
+        setColaGastos(prev => prev.map(x => x.id === item.id ? { ...x, estado: 'ok', proveedor: f.proveedor, total } : x));
+      } catch (err: any) {
+        setColaGastos(prev => prev.map(x => x.id === item.id ? { ...x, estado: 'error', error: err.message } : x));
+      }
+      if (i < items.length - 1) await new Promise(r => setTimeout(r, 7000));
+    }
+    procesandoColaRef.current = false;
+    loadGastos(selectedObra.id);
   };
 
   const handleGuardarGasto = async () => {
@@ -622,21 +679,64 @@ export default function PipelinePage() {
             ref={facturaInputRef}
             type="file"
             accept="application/pdf"
+            multiple
             className="hidden"
             onChange={handleSeleccionarFactura}
           />
           <button
             onClick={() => facturaInputRef.current?.click()}
-            disabled={isAnalyzing}
+            disabled={isAnalyzing || procesandoColaRef.current}
             className="flex items-center gap-3 bg-[#295693] text-white px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest disabled:opacity-50 hover:bg-blue-700 transition-all"
           >
-            {isAnalyzing ? (
-              <><Loader2 className="animate-spin" size={16} /> Analizando con IA...</>
+            {isAnalyzing || procesandoColaRef.current ? (
+              <><Loader2 className="animate-spin" size={16} /> Procesando...</>
             ) : (
-              <><Upload size={16} /> Subir factura PDF</>
+              <><Upload size={16} /> Subir facturas PDF</>
             )}
           </button>
+          <p className="text-[9px] text-zinc-400 font-bold">Puedes seleccionar varias a la vez</p>
         </div>
+
+        {/* Cola de subida masiva */}
+        {colaGastos.length > 0 && (
+          <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-6 space-y-3">
+            <div className="flex justify-between items-center">
+              <p className="text-[10px] font-black uppercase text-[#295693] tracking-widest">
+                Cola · {colaGastos.filter(x => x.estado === 'ok').length}/{colaGastos.length}
+              </p>
+              {!procesandoColaRef.current && (
+                <button onClick={() => setColaGastos([])} className="text-[9px] font-black uppercase text-zinc-300 hover:text-red-400 transition-all">Limpiar</button>
+              )}
+            </div>
+            <div className="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
+              <div className="h-full bg-[#295693] transition-all duration-500"
+                style={{ width: `${colaGastos.length ? (colaGastos.filter(x => x.estado === 'ok' || x.estado === 'error').length / colaGastos.length * 100) : 0}%` }} />
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {colaGastos.map(item => (
+                <div key={item.id} className="flex items-center gap-3 text-[10px]">
+                  <span className="shrink-0">
+                    {item.estado === 'ok' && <CheckCircle2 size={13} className="text-green-500" />}
+                    {item.estado === 'error' && <AlertTriangle size={13} className="text-red-400" />}
+                    {item.estado === 'procesando' && <Loader2 size={13} className="animate-spin text-[#295693]" />}
+                    {item.estado === 'pendiente' && <Clock size={13} className="text-zinc-300" />}
+                  </span>
+                  <span className="truncate font-bold text-zinc-600">
+                    {item.estado === 'ok' ? `${item.proveedor} · ${fmt(item.total || 0)}` :
+                     item.estado === 'error' ? item.error :
+                     item.file.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {!procesandoColaRef.current && colaGastos.every(x => x.estado === 'ok' || x.estado === 'error') && (
+              <p className="text-[10px] font-black uppercase text-zinc-400">
+                {colaGastos.filter(x => x.estado === 'ok').length} guardadas
+                {colaGastos.filter(x => x.estado === 'error').length > 0 && ` · ${colaGastos.filter(x => x.estado === 'error').length} errores`}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Preview factura */}
         {facturaPreview && (
