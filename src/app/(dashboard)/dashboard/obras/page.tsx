@@ -493,7 +493,7 @@ export default function PipelinePage() {
   // ── Cálculos análisis ─────────────────────────────────────────────────────
   const totalHoras       = horas.reduce((s, h) => s + parseFloat(h.horas || 0), 0);
   const totalJornadas    = totalHoras / 8;
-  const costeMO          = totalJornadas * 150;
+  const costeMO          = totalJornadas * 140;
   const totalGastos      = gastos.reduce((s, g) => s + parseFloat(g.total || 0), 0);
   const presupuestoTotal = selectedObra?.total_presupuesto || 0;
   const beneficio        = presupuestoTotal - costeMO - totalGastos;
@@ -1022,7 +1022,7 @@ export default function PipelinePage() {
   const TabHoras = () => {
     const totalH   = horas.reduce((s, h) => s + parseFloat(h.horas || 0), 0);
     const jornadas = totalH / 8;
-    const coste    = jornadas * 150;
+    const coste    = jornadas * 140;
     return (
       <div className="p-8 space-y-8 overflow-y-auto">
         <div className="bg-blue-50 border-2 border-blue-100 rounded-[2rem] p-6 space-y-4">
@@ -1097,7 +1097,7 @@ export default function PipelinePage() {
                   <td></td>
                 </tr>
                 <tr className="bg-[#295693]">
-                  <td colSpan={4} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Coste estimado mano de obra (150€/jornada)</td>
+                  <td colSpan={4} className="p-4 font-black text-[10px] uppercase tracking-widest text-white">Coste estimado mano de obra (140€/jornada)</td>
                   <td className="p-4 text-right font-black text-white text-lg">{fmt(coste)}</td>
                 </tr>
               </tfoot>
@@ -1155,7 +1155,7 @@ export default function PipelinePage() {
           <div className="bg-white border-2 border-zinc-100 rounded-[2rem] p-6 space-y-2">
             <p className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400">Coste mano de obra</p>
             <p className="text-3xl font-black text-zinc-800 tracking-tighter">{fmt(costeMO)}</p>
-            <p className="text-[9px] text-zinc-400 font-bold">{totalJornadas.toFixed(1)} jornadas × 150€</p>
+            <p className="text-[9px] text-zinc-400 font-bold">{totalJornadas.toFixed(1)} jornadas × 140€</p>
           </div>
           <div className="bg-white border-2 border-zinc-100 rounded-[2rem] p-6 space-y-2">
             <p className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400">Gastos de material</p>
