@@ -1,15 +1,27 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
-  Upload, Search, Loader2, Trash2, Eye, X, ReceiptText, TrendingUp, ArrowLeft, FileText
+  Upload, Search, Loader2, Trash2, Eye, X, ReceiptText, TrendingUp, ArrowLeft, FileText,
+  CheckCircle2, AlertCircle, Clock, ChevronRight
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getCategoria } from '@/lib/gastos'
 import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileName } from '@/lib/utils/pdfRender'
+
+const DELAY_MS = 7000 // 7s entre requests → ~8.5 req/min (límite: 10/min)
+
+type ColaItem = {
+  id: string
+  file: File
+  estado: 'pendiente' | 'procesando' | 'ok' | 'error'
+  proveedor?: string
+  total?: number
+  error?: string
+}
 
 export default function GastosCategoriaPage() {
   const supabase = createClient()
@@ -17,11 +29,14 @@ export default function GastosCategoriaPage() {
   const cat = getCategoria(params?.categoria)
   const [gastos, setGastos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [isUploading, setIsUploading] = useState(false)
-  const [totalMes, setTotalMes] = useState(0)
   const [selectedGasto, setSelectedGasto] = useState<any>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [filtro, setFiltro] = useState('')
+  const [totalMes, setTotalMes] = useState(0)
+
+  // Cola de subida masiva
+  const [cola, setCola] = useState<ColaItem[]>([])
+  const procesandoRef = useRef(false)
 
   useEffect(() => { if (cat) fetchGastos() }, [cat?.id])
 
@@ -42,14 +57,9 @@ export default function GastosCategoriaPage() {
         .select('*')
         .eq('categoria', cat.id)
         .order('fecha_factura', { ascending: false })
-
       if (error) throw error
-
       setGastos(data || [])
-      const total = (data || []).reduce(
-        (acc, curr) => acc + Number(curr.total_gasto || 0), 0
-      )
-      setTotalMes(total)
+      setTotalMes((data || []).reduce((acc, curr) => acc + Number(curr.total_gasto || 0), 0))
     } catch (error: any) {
       toast.error('Error al cargar gastos: ' + error.message)
     } finally {
@@ -57,46 +67,27 @@ export default function GastosCategoriaPage() {
     }
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.target
-    const original = input.files?.[0]
-    if (!original) return
-
-    if (!ACCEPTED_DOC_TYPES.includes(original.type)) {
-      toast.error('Formato no admitido. Sube un PDF o una imagen (JPG, PNG, WEBP)')
-      input.value = ''
-      return
-    }
-
-    setIsUploading(true)
-    const toastId = toast.loading('🤖 Analizando factura...')
+  const procesarArchivo = async (item: ColaItem): Promise<void> => {
+    setCola(prev => prev.map(i => i.id === item.id ? { ...i, estado: 'procesando' } : i))
 
     try {
-      // 0. Reducir fotos/escaneos pesados
-      const file = await compressImageIfNeeded(original)
+      const file = await compressImageIfNeeded(item.file)
 
-      // 1. Analizar con IA
       const formData = new FormData()
       formData.append('file', file)
       formData.append('categoria', cat.id)
 
-      const response = await fetch('/api/gemini/analizar-factura', {
-        method: 'POST',
-        body: formData,
-      })
+      const response = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: formData })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'Error al analizar la factura')
       const { factura } = result
 
-      // 2. Guardar el archivo original (opcional: si falla, no se pierde el gasto)
       const fecha = new Date(factura.fecha)
       const path = `${cat.id}/${fecha.getFullYear()}/${crypto.randomUUID()}-${safeFileName(file.name)}`
       let archivo_path: string | null = null
       const { error: upErr } = await supabase.storage.from('facturas').upload(path, file, { contentType: file.type })
-      if (upErr) toast.warning('No se pudo guardar el archivo original: ' + upErr.message)
-      else archivo_path = path
+      if (!upErr) archivo_path = path
 
-      // 3. Guardar en Supabase
       const { error } = await supabase.from('gastos_materiales').insert([{
         categoria: cat.id,
         proveedor_nombre: factura.proveedor,
@@ -117,18 +108,69 @@ export default function GastosCategoriaPage() {
         throw new Error(error.message)
       }
 
-      toast.success(
-        `✅ Factura de ${factura.proveedor} registrada — ${factura.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}€`,
-        { id: toastId }
-      )
-      fetchGastos()
-    } catch (error: any) {
-      toast.error('Error: ' + error.message, { id: toastId })
-    } finally {
-      setIsUploading(false)
-      input.value = ''
+      setCola(prev => prev.map(i => i.id === item.id
+        ? { ...i, estado: 'ok', proveedor: factura.proveedor, total: factura.total }
+        : i
+      ))
+    } catch (err: any) {
+      setCola(prev => prev.map(i => i.id === item.id
+        ? { ...i, estado: 'error', error: err.message }
+        : i
+      ))
     }
   }
+
+  const ejecutarCola = async (items: ColaItem[]) => {
+    if (procesandoRef.current) return
+    procesandoRef.current = true
+
+    for (let i = 0; i < items.length; i++) {
+      await procesarArchivo(items[i])
+      if (i < items.length - 1) {
+        await new Promise(r => setTimeout(r, DELAY_MS))
+      }
+    }
+
+    procesandoRef.current = false
+    fetchGastos()
+  }
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    e.target.value = ''
+
+    const validos = files.filter(f => ACCEPTED_DOC_TYPES.includes(f.type))
+    const invalidos = files.length - validos.length
+    if (invalidos > 0) toast.warning(`${invalidos} archivo(s) ignorados (solo PDF e imágenes)`)
+    if (!validos.length) return
+
+    const nuevos: ColaItem[] = validos.map(f => ({
+      id: crypto.randomUUID(),
+      file: f,
+      estado: 'pendiente',
+    }))
+
+    setCola(prev => {
+      const actualizados = [...prev, ...nuevos]
+      if (!procesandoRef.current) {
+        const pendientes = actualizados.filter(i => i.estado === 'pendiente')
+        ejecutarCola(pendientes)
+      }
+      return actualizados
+    })
+  }
+
+  const limpiarCola = () => {
+    if (procesandoRef.current) return
+    setCola([])
+  }
+
+  const colaActiva = cola.length > 0
+  const colaProcesando = cola.some(i => i.estado === 'procesando')
+  const colaPendientes = cola.filter(i => i.estado === 'pendiente' || i.estado === 'procesando').length
+  const colaOk = cola.filter(i => i.estado === 'ok').length
+  const colaError = cola.filter(i => i.estado === 'error').length
 
   const verOriginal = async (g: any) => {
     if (!g.archivo_path) return
@@ -164,25 +206,16 @@ export default function GastosCategoriaPage() {
           <div className="bg-[#0f172a] border border-white/10 w-full max-w-4xl rounded-[3rem] p-10 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
             <div className="flex justify-between items-start mb-8 text-white">
               <div>
-                <h2 className="text-3xl font-black uppercase italic text-emerald-400">
-                  Detalle de Factura
-                </h2>
-                <p className="text-xs font-bold opacity-50 uppercase tracking-widest mt-2">
-                  {selectedGasto.proveedor_nombre}
-                </p>
+                <h2 className="text-3xl font-black uppercase italic text-emerald-400">Detalle de Factura</h2>
+                <p className="text-xs font-bold opacity-50 uppercase tracking-widest mt-2">{selectedGasto.proveedor_nombre}</p>
                 <p className="text-[10px] font-bold opacity-30 uppercase tracking-widest">
                   Factura: {selectedGasto.numero_factura} — {new Date(selectedGasto.fecha_factura).toLocaleDateString('es-ES')}
                 </p>
               </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-all text-white"
-              >
+              <button onClick={() => setIsModalOpen(false)} className="p-4 bg-white/5 rounded-2xl hover:bg-white/10 transition-all text-white">
                 <X size={24} />
               </button>
             </div>
-
-            {/* TABLA DE LÍNEAS */}
             <div className="max-h-[400px] overflow-y-auto rounded-3xl border border-white/5 bg-black/40 mb-8 p-4">
               <table className="w-full text-left">
                 <thead className="bg-white/5 sticky top-0 font-black uppercase text-[10px] text-emerald-400/70 tracking-widest italic">
@@ -199,57 +232,33 @@ export default function GastosCategoriaPage() {
                   {selectedGasto.desglose_materiales?.length > 0 ? (
                     selectedGasto.desglose_materiales.map((m: any, i: number) => (
                       <tr key={i} className="text-sm hover:bg-white/5">
-                        <td className="px-6 py-4 font-bold uppercase opacity-80">
-                          {m.descripcion || m.item || m.material || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-center font-black text-white">
-                          {m.cantidad || m.cant || 0}
-                        </td>
-                        <td className="px-6 py-4 text-center text-white/50 text-[10px] uppercase">
-                          {m.unidad || '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right font-bold text-white/70">
-                          {parseFloat(m.precio_unitario || m.precio || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                        </td>
-                        <td className="px-6 py-4 text-right text-white/40 text-[10px]">
-                          {m.descuento ? `${m.descuento}%` : '—'}
-                        </td>
-                        <td className="px-6 py-4 text-right font-black text-emerald-400">
-                          {parseFloat(m.importe || m.total || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                        </td>
+                        <td className="px-6 py-4 font-bold uppercase opacity-80">{m.descripcion || m.item || m.material || '—'}</td>
+                        <td className="px-6 py-4 text-center font-black text-white">{m.cantidad || m.cant || 0}</td>
+                        <td className="px-6 py-4 text-center text-white/50 text-[10px] uppercase">{m.unidad || '—'}</td>
+                        <td className="px-6 py-4 text-right font-bold text-white/70">{parseFloat(m.precio_unitario || m.precio || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</td>
+                        <td className="px-6 py-4 text-right text-white/40 text-[10px]">{m.descuento ? `${m.descuento}%` : '—'}</td>
+                        <td className="px-6 py-4 text-right font-black text-emerald-400">{parseFloat(m.importe || m.total || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</td>
                       </tr>
                     ))
                   ) : (
-                    <tr>
-                      <td colSpan={6} className="text-center py-10 text-white/20 italic">
-                        Sin desglose de líneas
-                      </td>
-                    </tr>
+                    <tr><td colSpan={6} className="text-center py-10 text-white/20 italic">Sin desglose de líneas</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-
-            {/* TOTALES */}
             <div className="bg-white/5 p-8 rounded-[2rem] border border-white/10">
               <div className="grid grid-cols-3 gap-6 text-center">
                 <div>
                   <p className="text-[10px] font-black uppercase text-white/40 mb-1">Base Imponible</p>
-                  <p className="text-xl font-black text-white">
-                    {Number(selectedGasto.subtotal || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                  </p>
+                  <p className="text-xl font-black text-white">{Number(selectedGasto.subtotal || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-white/40 mb-1">IVA</p>
-                  <p className="text-xl font-black text-white">
-                    {Number(selectedGasto.iva || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                  </p>
+                  <p className="text-xl font-black text-white">{Number(selectedGasto.iva || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase text-emerald-400 mb-1">Total Factura</p>
-                  <p className="text-3xl font-black italic tracking-tighter text-white">
-                    {Number(selectedGasto.total_gasto || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                  </p>
+                  <p className="text-3xl font-black italic tracking-tighter text-white">{Number(selectedGasto.total_gasto || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €</p>
                 </div>
               </div>
             </div>
@@ -279,35 +288,32 @@ export default function GastosCategoriaPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* PANEL SUBIDA */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 space-y-4">
           <div className="bg-white/10 border border-white/20 rounded-[2.5rem] p-8 backdrop-blur-md sticky top-10">
             <div className="text-center mb-6">
               <ReceiptText size={48} className="mx-auto text-emerald-400 opacity-20 mb-2" />
-              <p className="text-[10px] font-black uppercase text-white/40 tracking-widest">
-                Subir Factura
-              </p>
-              <p className="text-[9px] text-white/20 mt-1">
-                PDF, foto o escaneo
-              </p>
+              <p className="text-[10px] font-black uppercase text-white/40 tracking-widest">Subir Facturas</p>
+              <p className="text-[9px] text-white/20 mt-1">Puedes seleccionar varios PDFs a la vez</p>
             </div>
 
             <label className={`w-full border-2 border-dashed rounded-[2rem] p-10 flex flex-col items-center justify-center cursor-pointer transition-all ${
-              isUploading
-                ? 'opacity-30 cursor-not-allowed border-white/10'
+              colaProcesando
+                ? 'opacity-50 cursor-default border-white/10'
                 : 'hover:border-emerald-400 border-white/20 bg-white/5 hover:bg-white/10'
             }`}>
               <input
                 type="file"
                 className="hidden"
-                onChange={handleFileUpload}
+                onChange={handleFilesSelected}
                 accept={ACCEPTED_DOC_ATTR}
-                disabled={isUploading}
+                multiple
+                disabled={colaProcesando}
               />
-              {isUploading ? (
+              {colaProcesando ? (
                 <>
                   <Loader2 className="animate-spin text-emerald-400 h-10 w-10 mb-3" />
-                  <span className="text-[9px] font-black uppercase text-emerald-400/60">
-                    Procesando...
+                  <span className="text-[9px] font-black uppercase text-emerald-400/60 text-center">
+                    Procesando cola...
                   </span>
                 </>
               ) : (
@@ -337,11 +343,68 @@ export default function GastosCategoriaPage() {
               </div>
             </div>
           </div>
+
+          {/* COLA DE SUBIDA */}
+          {colaActiva && (
+            <div className="bg-white/5 border border-white/10 rounded-[2rem] p-6 space-y-3">
+              {/* Cabecera cola */}
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] font-black uppercase text-white/50 tracking-widest">
+                  Cola · {colaOk}/{cola.length}
+                </p>
+                {!colaProcesando && (
+                  <button onClick={limpiarCola} className="text-[9px] font-black uppercase text-white/20 hover:text-red-400 transition-all">
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              {/* Barra de progreso */}
+              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 transition-all duration-500"
+                  style={{ width: `${cola.length ? (colaOk + colaError) / cola.length * 100 : 0}%` }}
+                />
+              </div>
+
+              {/* Items */}
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {cola.map(item => (
+                  <div key={item.id} className="flex items-center gap-3 text-[10px]">
+                    <div className="shrink-0">
+                      {item.estado === 'ok' && <CheckCircle2 size={14} className="text-emerald-400" />}
+                      {item.estado === 'error' && <AlertCircle size={14} className="text-red-400" />}
+                      {item.estado === 'procesando' && <Loader2 size={14} className="animate-spin text-amber-400" />}
+                      {item.estado === 'pendiente' && <Clock size={14} className="text-white/20" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {item.estado === 'ok' ? (
+                        <p className="truncate font-black text-white/70">
+                          {item.proveedor} · {item.total?.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                        </p>
+                      ) : item.estado === 'error' ? (
+                        <p className="truncate text-red-400">{item.error || 'Error'}</p>
+                      ) : (
+                        <p className="truncate text-white/30">{item.file.name}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Resumen final */}
+              {!colaProcesando && colaPendientes === 0 && (
+                <div className="pt-2 border-t border-white/10 text-[10px] font-black uppercase flex gap-4">
+                  <span className="text-emerald-400">{colaOk} ok</span>
+                  {colaError > 0 && <span className="text-red-400">{colaError} errores</span>}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* TABLA */}
         <div className="lg:col-span-3 bg-white/5 border border-white/10 rounded-[3rem] p-8 shadow-2xl backdrop-blur-sm">
-          {/* BUSCADOR */}
           <div className="relative mb-6">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-white/30" size={18} />
             <input
@@ -362,66 +425,62 @@ export default function GastosCategoriaPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-            <table className="min-w-[700px] w-full text-left border-separate border-spacing-y-3">
-              <thead>
-                <tr className="text-[10px] font-black uppercase text-emerald-400/60 italic tracking-[0.2em]">
-                  <th className="px-6 pb-2">Fecha</th>
-                  <th className="px-6 pb-2">Proveedor</th>
-                  <th className="px-6 pb-2">Nº Factura</th>
-                  <th className="px-6 pb-2">Obra / Ref.</th>
-                  <th className="px-6 pb-2 text-right">Total</th>
-                  <th className="px-6 pb-2 text-center">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {gastosFiltrados.map(g => (
-                  <tr key={g.id} className="bg-white/5 hover:bg-white/10 transition-all">
-                    <td className="px-6 py-5 rounded-l-2xl font-bold text-sm opacity-60">
-                      {new Date(g.fecha_factura).toLocaleDateString('es-ES')}
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="font-black uppercase text-sm tracking-tight">{g.proveedor_nombre}</div>
-                    </td>
-                    <td className="px-6 py-5 font-mono text-[11px] text-emerald-400 font-bold">
-                      {g.numero_factura}
-                    </td>
-                    <td className="px-6 py-5 text-[11px] text-white/40 font-bold uppercase italic">
-                      {g.obra_referencia || '—'}
-                    </td>
-                    <td className="px-6 py-5 text-right font-black text-xl italic tracking-tighter">
-                      {Number(g.total_gasto).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-                    </td>
-                    <td className="px-6 py-5 rounded-r-2xl text-center">
-                      <div className="flex justify-center gap-2">
-                        <button
-                          onClick={() => { setSelectedGasto(g); setIsModalOpen(true) }}
-                          className="bg-white/10 text-white p-3 rounded-xl hover:bg-emerald-500 transition-all shadow-lg"
-                          title="Ver desglose"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        {g.archivo_path && (
-                          <button
-                            onClick={() => verOriginal(g)}
-                            className="bg-white/10 text-white p-3 rounded-xl hover:bg-sky-500 transition-all shadow-lg"
-                            title="Ver factura original"
-                          >
-                            <FileText size={16} />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => eliminarGasto(g)}
-                          className="bg-red-500/10 text-red-400 p-3 rounded-xl hover:bg-red-500 hover:text-white transition-all"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
+              <table className="min-w-[700px] w-full text-left border-separate border-spacing-y-3">
+                <thead>
+                  <tr className="text-[10px] font-black uppercase text-emerald-400/60 italic tracking-[0.2em]">
+                    <th className="px-6 pb-2">Fecha</th>
+                    <th className="px-6 pb-2">Proveedor</th>
+                    <th className="px-6 pb-2">Nº Factura</th>
+                    <th className="px-6 pb-2">Obra / Ref.</th>
+                    <th className="px-6 pb-2 text-right">Total</th>
+                    <th className="px-6 pb-2 text-center">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {gastosFiltrados.map(g => (
+                    <tr key={g.id} className="bg-white/5 hover:bg-white/10 transition-all">
+                      <td className="px-6 py-5 rounded-l-2xl font-bold text-sm opacity-60">
+                        {new Date(g.fecha_factura).toLocaleDateString('es-ES')}
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="font-black uppercase text-sm tracking-tight">{g.proveedor_nombre}</div>
+                      </td>
+                      <td className="px-6 py-5 font-mono text-[11px] text-emerald-400 font-bold">{g.numero_factura}</td>
+                      <td className="px-6 py-5 text-[11px] text-white/40 font-bold uppercase italic">{g.obra_referencia || '—'}</td>
+                      <td className="px-6 py-5 text-right font-black text-xl italic tracking-tighter">
+                        {Number(g.total_gasto).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+                      </td>
+                      <td className="px-6 py-5 rounded-r-2xl text-center">
+                        <div className="flex justify-center gap-2">
+                          <button
+                            onClick={() => { setSelectedGasto(g); setIsModalOpen(true) }}
+                            className="bg-white/10 text-white p-3 rounded-xl hover:bg-emerald-500 transition-all shadow-lg"
+                            title="Ver desglose"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          {g.archivo_path && (
+                            <button
+                              onClick={() => verOriginal(g)}
+                              className="bg-white/10 text-white p-3 rounded-xl hover:bg-sky-500 transition-all shadow-lg"
+                              title="Ver factura original"
+                            >
+                              <FileText size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => eliminarGasto(g)}
+                            className="bg-red-500/10 text-red-400 p-3 rounded-xl hover:bg-red-500 hover:text-white transition-all"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
