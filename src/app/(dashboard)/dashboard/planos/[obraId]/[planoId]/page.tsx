@@ -10,7 +10,7 @@ import {
 import { toast } from 'sonner'
 import { renderPdfToImageUrl } from '@/lib/utils/pdfRender'
 
-type TipoSistema = 'trasdosados' | 'techos' | 'cortineros'
+type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml'
 interface Tramo { id: string; metros: number; x1: number | null; y1: number | null; x2: number | null; y2: number | null }
 interface Medicion { id: string; nombre: string; color: string; alto: number; plano_tramos: Tramo[] }
 interface Pt { x: number; y: number }
@@ -21,17 +21,23 @@ const COLORES = [
   { n: 'Cian', v: '#06b6d4' }, { n: 'Rojo', v: '#ef4444' },
 ]
 
+// Fallback para planos migrados del campo tipo_sistema
+const TIPO_SISTEMA_A_FORMULA: Record<string, Formula> = {
+  trasdosados: 'ml_x_alto',
+  techos: 'largo_x_ancho',
+  cortineros: 'suma_ml',
+}
+
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseNum = (s: string) => parseFloat(String(s).replace(',', '.'))
 const sumML = (m: Medicion) => m.plano_tramos.reduce((a, t) => a + Number(t.metros || 0), 0)
-const sumM2 = (m: Medicion, tipo: TipoSistema) => {
-  if (tipo === 'cortineros') return 0
+const sumM2 = (m: Medicion, formula: Formula) => {
+  if (formula === 'suma_ml') return 0
   return sumML(m) * Number(m.alto || 0)
 }
 
-// Labels según tipo de sistema
-const CFG: Record<TipoSistema, { boton: string; altoLabel: string; altoPlaceholder: string; tramoLabel: string; tramoPlaceholder: string; sumarBtn: string; showAlto: boolean; showM2: boolean }> = {
-  trasdosados: {
+const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: string; tramoLabel: string; tramoPlaceholder: string; sumarBtn: string; showAlto: boolean; showM2: boolean }> = {
+  ml_x_alto: {
     boton: 'Nueva medición',
     altoLabel: 'Altura (m)',
     altoPlaceholder: 'Ej: 2,8',
@@ -41,7 +47,7 @@ const CFG: Record<TipoSistema, { boton: string; altoLabel: string; altoPlacehold
     showAlto: true,
     showM2: true,
   },
-  techos: {
+  largo_x_ancho: {
     boton: 'Nuevo techo',
     altoLabel: 'Ancho (m)',
     altoPlaceholder: 'Ej: 3,5',
@@ -51,7 +57,7 @@ const CFG: Record<TipoSistema, { boton: string; altoLabel: string; altoPlacehold
     showAlto: true,
     showM2: true,
   },
-  cortineros: {
+  suma_ml: {
     boton: 'Nuevo cortinero',
     altoLabel: '',
     altoPlaceholder: '',
@@ -77,7 +83,6 @@ export default function PlanoViewerPage() {
   const [zoom, setZoom] = useState(1)
   const [dispW, setDispW] = useState(0)
 
-  // dibujo
   const [drawMode, setDrawMode] = useState(false)
   const [firstPoint, setFirstPoint] = useState<Pt | null>(null)
   const [cursor, setCursor] = useState<Pt | null>(null)
@@ -86,13 +91,12 @@ export default function PlanoViewerPage() {
   const metrosRef = useRef<HTMLInputElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
-  // modal medición
   const [modal, setModal] = useState<{ id: string | null } | null>(null)
   const [form, setForm] = useState({ nombre: '', alto: '', color: COLORES[0].v })
   const [saving, setSaving] = useState(false)
 
-  const tipo: TipoSistema = (plano?.tipo_sistema || 'trasdosados') as TipoSistema
-  const cfg = CFG[tipo]
+  const formula: Formula = ((plano?.plano_tipos_sistema?.formula) || TIPO_SISTEMA_A_FORMULA[plano?.tipo_sistema || ''] || 'ml_x_alto') as Formula
+  const cfg = CFG[formula]
   const active = mediciones.find(m => m.id === activeId) || null
 
   /* ---------- Carga ---------- */
@@ -117,7 +121,7 @@ export default function PlanoViewerPage() {
 
     const init = async () => {
       const { data: p, error } = await supabase
-        .from('planos').select('*, obras(titulo)').eq('id', planoId).single()
+        .from('planos').select('*, obras(titulo), plano_tipos_sistema(*)').eq('id', planoId).single()
       if (error || !p) { setLoading(false); return }
       setPlano(p)
       await loadMediciones()
@@ -161,9 +165,9 @@ export default function PlanoViewerPage() {
   /* ---------- Totales ---------- */
   const totales = useMemo(() => {
     const ml = mediciones.reduce((a, m) => a + sumML(m), 0)
-    const m2 = mediciones.reduce((a, m) => a + sumM2(m, tipo), 0)
+    const m2 = mediciones.reduce((a, m) => a + sumM2(m, formula), 0)
     return { ml, m2 }
-  }, [mediciones, tipo])
+  }, [mediciones, formula])
 
   /* ---------- Mediciones (CRUD) ---------- */
   const abrirModal = (m?: Medicion) => {
@@ -286,16 +290,15 @@ export default function PlanoViewerPage() {
     )
   }
 
-  /* ── Helpers de fórmula por tipo ── */
   const formulaMedicion = (m: Medicion) => {
     const ml = sumML(m)
-    if (tipo === 'cortineros') {
+    if (formula === 'suma_ml') {
       const tramos = m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')
       return tramos
         ? <span className="text-[11px] font-bold text-white/60 break-words">{tramos} = <span className="text-white font-black">{fmt(ml)} ml</span></span>
         : null
     }
-    if (tipo === 'techos') {
+    if (formula === 'largo_x_ancho') {
       const largos = m.plano_tramos.map(t => fmt(Number(t.metros)))
       const ancho = fmt(Number(m.alto))
       if (!m.plano_tramos.length) return null
@@ -305,7 +308,7 @@ export default function PlanoViewerPage() {
         </span>
       )
     }
-    // trasdosados
+    // ml_x_alto
     const tramos = m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')
     return tramos
       ? <span className="text-[11px] font-bold text-white/60 break-words">
@@ -317,10 +320,18 @@ export default function PlanoViewerPage() {
 
   const labelMedicion = (m: Medicion) => {
     const ml = sumML(m)
-    const m2 = sumM2(m, tipo)
-    if (tipo === 'cortineros') return `${fmt(ml)} ml`
+    const m2 = sumM2(m, formula)
+    if (formula === 'suma_ml') return `${fmt(ml)} ml`
     return `${fmt(ml)} ml · ${fmt(m2)} m²`
   }
+
+  const tipoNombrePanel = plano?.plano_tipos_sistema?.nombre
+    || (plano?.tipo_sistema === 'trasdosados' ? 'Mediciones'
+      : plano?.tipo_sistema === 'techos' ? 'Techos'
+      : 'Cortineros')
+
+  const medicionLabelModal = formula === 'ml_x_alto' ? 'Sistema / nombre' : formula === 'largo_x_ancho' ? 'Nombre del techo' : 'Nombre del cortinero'
+  const medicionPlaceholderModal = formula === 'ml_x_alto' ? 'Ej: Tabique 70/600 doble placa' : formula === 'largo_x_ancho' ? 'Ej: Techo habitación principal' : 'Ej: Cortinero salón'
 
   return (
     <div className="w-full p-4 lg:p-6 text-white font-sans flex flex-col gap-4 lg:h-screen">
@@ -334,7 +345,7 @@ export default function PlanoViewerPage() {
             {plano.nombre} {plano.zona && <span className="text-emerald-400 text-base not-italic">· {plano.zona}</span>}
           </h1>
           <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mt-0.5">
-            {CFG[tipo].boton.replace('Nuevo ', '').replace('Nueva ', '')}
+            {plano?.plano_tipos_sistema?.nombre || cfg.boton.replace('Nuevo ', '').replace('Nueva ', '')}
           </p>
         </div>
 
@@ -343,7 +354,7 @@ export default function PlanoViewerPage() {
             <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
             <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
           </div>
-          {tipo !== 'cortineros' && (
+          {formula !== 'suma_ml' && (
             <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
               <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
               <p className="font-black italic text-lg leading-tight">{fmt(totales.m2)}</p>
@@ -426,10 +437,7 @@ export default function PlanoViewerPage() {
         {/* PANEL MEDICIONES */}
         <div className="bg-white/5 border border-white/10 rounded-3xl flex flex-col min-h-0 overflow-hidden">
           <div className="p-4 border-b border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40">
-            {tipo === 'trasdosados' && 'Mediciones'}
-            {tipo === 'techos' && 'Techos'}
-            {tipo === 'cortineros' && 'Cortineros'}
-            {' '}({mediciones.length})
+            {tipoNombrePanel} ({mediciones.length})
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -442,7 +450,7 @@ export default function PlanoViewerPage() {
 
             {mediciones.map(m => {
               const ml = sumML(m)
-              const m2 = sumM2(m, tipo)
+              const m2 = sumM2(m, formula)
               const isActive = m.id === activeId
               return (
                 <div
@@ -457,7 +465,7 @@ export default function PlanoViewerPage() {
                       <p className="font-black uppercase text-sm leading-tight break-words">{m.nombre}</p>
                       {cfg.showAlto && (
                         <p className="text-[10px] font-bold uppercase text-white/40">
-                          {tipo === 'techos' ? 'Ancho' : 'Altura'}: {fmt(Number(m.alto))} m
+                          {formula === 'largo_x_ancho' ? 'Ancho' : 'Altura'}: {fmt(Number(m.alto))} m
                         </p>
                       )}
                     </div>
@@ -465,11 +473,10 @@ export default function PlanoViewerPage() {
                     <button onClick={e => { e.stopPropagation(); eliminarMedicion(m) }} className="p-1.5 text-red-400/50 hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
 
-                  {/* Stats */}
                   <div className={`grid gap-2 mt-3 ${cfg.showM2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                     <div className="bg-black/30 rounded-xl p-2 text-center">
                       <p className="text-[9px] font-black uppercase text-white/40">
-                        {tipo === 'cortineros' ? 'Total ML' : 'ML'}
+                        {formula === 'suma_ml' ? 'Total ML' : 'ML'}
                       </p>
                       <p className="font-black italic">{fmt(ml)}</p>
                     </div>
@@ -489,7 +496,7 @@ export default function PlanoViewerPage() {
                           <div className="flex flex-wrap gap-1.5">
                             {m.plano_tramos.map((t, idx) => (
                               <span key={t.id} className="inline-flex items-center gap-1 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-black">
-                                {tipo === 'techos' ? `Largo ${idx + 1}: ` : ''}{fmt(Number(t.metros))}
+                                {formula === 'largo_x_ancho' ? `Largo ${idx + 1}: ` : ''}{fmt(Number(t.metros))}
                                 <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
                               </span>
                             ))}
@@ -504,7 +511,7 @@ export default function PlanoViewerPage() {
                           value={metrosInput}
                           onChange={e => setMetrosInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); guardarTramo() } }}
-                          placeholder={pending ? cfg.tramoPlaceholder : cfg.tramoPlaceholder}
+                          placeholder={cfg.tramoPlaceholder}
                           className={`flex-1 min-w-0 bg-black/40 border rounded-xl px-3 py-2 text-sm font-bold outline-none ${pending ? 'border-emerald-400' : 'border-white/10 focus:border-white/40'}`}
                         />
                         <button
@@ -541,18 +548,12 @@ export default function PlanoViewerPage() {
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">
-                {tipo === 'trasdosados' ? 'Sistema / nombre' : tipo === 'techos' ? 'Nombre del techo' : 'Nombre del cortinero'}
-              </label>
+              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">{medicionLabelModal}</label>
               <input
                 autoFocus
                 value={form.nombre}
                 onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
-                placeholder={
-                  tipo === 'trasdosados' ? 'Ej: Tabique 70/600 doble placa' :
-                  tipo === 'techos' ? 'Ej: Techo habitación principal' :
-                  'Ej: Cortinero salón'
-                }
+                placeholder={medicionPlaceholderModal}
                 className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
               />
             </div>

@@ -10,13 +10,30 @@ import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileN
 
 const ZONAS = ['Sótano', 'Planta baja', 'Primera planta', 'Segunda planta', 'Tercera planta', 'Ático', 'Cubierta', 'Exterior']
 
-const TIPOS_SISTEMA = [
-  { id: 'trasdosados', label: 'Trasdosados / Tabiques', desc: 'ML × alto = m²', Icon: Layers },
-  { id: 'techos',      label: 'Falsos techos',          desc: 'Largo × Ancho = m²', Icon: Square },
-  { id: 'cortineros',  label: 'Cortineros',             desc: 'Suma de ML', Icon: Minus },
-]
+const FORMULA_ICONS: Record<string, typeof Layers> = {
+  ml_x_alto: Layers,
+  largo_x_ancho: Square,
+  suma_ml: Minus,
+}
+
+const FORMULA_LABELS: Record<string, string> = {
+  ml_x_alto: 'ML × alto = m²',
+  largo_x_ancho: 'Largo × Ancho = m²',
+  suma_ml: 'Suma de ML',
+}
+
+// Fallback para planos migrados del campo tipo_sistema
+const TIPO_SISTEMA_A_FORMULA: Record<string, string> = {
+  trasdosados: 'ml_x_alto',
+  techos: 'largo_x_ancho',
+  cortineros: 'suma_ml',
+}
 
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function getFormula(p: any): string {
+  return p?.plano_tipos_sistema?.formula || TIPO_SISTEMA_A_FORMULA[p?.tipo_sistema] || 'ml_x_alto'
+}
 
 export default function PlanosObraPage() {
   const supabase = createClient()
@@ -26,13 +43,14 @@ export default function PlanosObraPage() {
   const [obra, setObra] = useState<any>(null)
   const [planos, setPlanos] = useState<any[]>([])
   const [totales, setTotales] = useState<Record<string, { ml: number; m2: number }>>({})
+  const [tipos, setTipos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   // Modal nuevo plano
   const [modal, setModal] = useState(false)
   const [zona, setZona] = useState('')
   const [nombre, setNombre] = useState('')
-  const [tipo, setTipo] = useState('trasdosados')
+  const [tipoId, setTipoId] = useState<string>('')
   const [archivo, setArchivo] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -41,13 +59,17 @@ export default function PlanosObraPage() {
   const [nuevoNombre, setNuevoNombre] = useState('')
 
   const load = async () => {
-    const [obraRes, planosRes] = await Promise.all([
+    const [obraRes, planosRes, tiposRes] = await Promise.all([
       supabase.from('obras').select('id, titulo, clientes(nombre)').eq('id', obraId).single(),
-      supabase.from('planos').select('*').eq('obra_id', obraId).order('created_at', { ascending: true }),
+      supabase.from('planos').select('*, plano_tipos_sistema(*)').eq('obra_id', obraId).order('created_at', { ascending: true }),
+      supabase.from('plano_tipos_sistema').select('*').order('orden', { ascending: true }).order('created_at', { ascending: true }),
     ])
     setObra(obraRes.data)
     const lista = planosRes.data || []
     setPlanos(lista)
+    const tiposList = tiposRes.data || []
+    setTipos(tiposList)
+    setTipoId(prev => prev || tiposList[0]?.id || '')
 
     if (lista.length > 0) {
       const { data: meds } = await supabase
@@ -60,9 +82,8 @@ export default function PlanosObraPage() {
         const ml = (m.plano_tramos || []).reduce((a: number, x: any) => a + Number(x.metros || 0), 0)
         t[m.plano_id] = t[m.plano_id] || { ml: 0, m2: 0 }
         t[m.plano_id].ml += ml
-        // Cortineros no generan m²
-        const planoTipo = lista.find((p: any) => p.id === m.plano_id)?.tipo_sistema || 'trasdosados'
-        if (planoTipo !== 'cortineros') {
+        const plano = lista.find((p: any) => p.id === m.plano_id)
+        if (getFormula(plano) !== 'suma_ml') {
           t[m.plano_id].m2 += ml * Number(m.alto || 0)
         }
       })
@@ -74,7 +95,13 @@ export default function PlanosObraPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [obraId])
 
-  const abrirModal = () => { setZona(''); setNombre(''); setTipo('trasdosados'); setArchivo(null); setModal(true) }
+  const abrirModal = () => {
+    setZona('')
+    setNombre('')
+    setTipoId(tipos[0]?.id || '')
+    setArchivo(null)
+    setModal(true)
+  }
 
   const onZona = (z: string) => {
     setNombre(prev => (!prev || prev === zona ? (z ? `Plano ${z.toLowerCase()}` : '') : prev))
@@ -87,6 +114,7 @@ export default function PlanosObraPage() {
     if (!nombre.trim()) return toast.error('Escribe el nombre del plano')
     if (!ACCEPTED_DOC_TYPES.includes(archivo.type)) return toast.error('Formato no admitido (PDF, JPG, PNG o WEBP)')
     if (archivo.size > 50 * 1024 * 1024) return toast.error('El archivo no puede superar 50MB')
+    if (!tipoId) return toast.error('Selecciona el tipo de sistema')
 
     setSaving(true)
     try {
@@ -95,13 +123,20 @@ export default function PlanosObraPage() {
       const { error: upErr } = await supabase.storage.from('planos').upload(path, file, { contentType: file.type })
       if (upErr) throw new Error(upErr.message)
 
+      const tipoSel = tipos.find(t => t.id === tipoId)
+      const formulaToTipoSistema: Record<string, string> = {
+        ml_x_alto: 'trasdosados', largo_x_ancho: 'techos', suma_ml: 'cortineros',
+      }
+      const tipoSistemaLegacy = formulaToTipoSistema[tipoSel?.formula || 'ml_x_alto'] || 'trasdosados'
+
       const { data: nuevo, error } = await supabase.from('planos').insert([{
         obra_id: obraId,
         nombre: nombre.trim(),
         zona: zona || null,
         archivo_path: path,
         mime_type: file.type,
-        tipo_sistema: tipo,
+        tipo_sistema: tipoSistemaLegacy,
+        tipo_id: tipoId,
       }]).select('id').single()
 
       if (error) {
@@ -138,8 +173,6 @@ export default function PlanosObraPage() {
   }
 
   const totalObra = Object.values(totales).reduce((a, t) => ({ ml: a.ml + t.ml, m2: a.m2 + t.m2 }), { ml: 0, m2: 0 })
-
-  const tipoInfo = (id: string) => TIPOS_SISTEMA.find(t => t.id === id) || TIPOS_SISTEMA[0]
 
   return (
     <div className="w-full max-w-[1100px] mx-auto p-6 lg:p-10 text-white font-sans">
@@ -187,7 +220,11 @@ export default function PlanosObraPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {planos.map(p => {
                 const t = totales[p.id]
-                const ti = tipoInfo(p.tipo_sistema)
+                const formula = getFormula(p)
+                const tipoNombre = p.plano_tipos_sistema?.nombre
+                  || (p.tipo_sistema === 'trasdosados' ? 'Trasdosados / Tabiques'
+                    : p.tipo_sistema === 'techos' ? 'Falsos techos'
+                    : 'Cortineros')
                 const esRenombrando = renombrando === p.id
                 return (
                   <div key={p.id} className="relative group bg-white/5 border border-white/10 rounded-[2rem] hover:bg-white/10 hover:border-emerald-400/40 transition-all">
@@ -213,10 +250,10 @@ export default function PlanosObraPage() {
                             <h2 className="font-black uppercase italic truncate">{p.nombre}</h2>
                           </Link>
                         )}
-                        <p className="text-[10px] font-bold uppercase text-white/40">{p.zona || 'Sin zona'} · {ti.label}</p>
+                        <p className="text-[10px] font-bold uppercase text-white/40">{p.zona || 'Sin zona'} · {tipoNombre}</p>
                         <p className="text-[11px] font-black text-emerald-400 mt-1">
                           {fmt(t?.ml || 0)} ml
-                          {p.tipo_sistema !== 'cortineros' && ` · ${fmt(t?.m2 || 0)} m²`}
+                          {formula !== 'suma_ml' && ` · ${fmt(t?.m2 || 0)} m²`}
                         </p>
                       </div>
                       {!esRenombrando && (
@@ -226,7 +263,6 @@ export default function PlanosObraPage() {
                       )}
                     </div>
 
-                    {/* Botones acción */}
                     <div className="absolute top-3 right-3 flex gap-1">
                       <button
                         onClick={() => { setRenombrando(p.id); setNuevoNombre(p.nombre) }}
@@ -260,32 +296,33 @@ export default function PlanosObraPage() {
               <button type="button" onClick={() => setModal(false)} className="p-2 bg-white/5 rounded-xl hover:bg-white/10"><X size={20} /></button>
             </div>
 
-            {/* Tipo de sistema */}
             <div>
               <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">¿Qué tipo de sistema vas a medir?</label>
               <div className="grid grid-cols-1 gap-2 mt-3">
-                {TIPOS_SISTEMA.map(t => (
-                  <button
-                    type="button"
-                    key={t.id}
-                    onClick={() => setTipo(t.id)}
-                    className={`flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all ${
-                      tipo === t.id
-                        ? 'border-emerald-400 bg-emerald-400/10 text-white'
-                        : 'border-white/10 bg-white/5 text-white/60 hover:border-white/30'
-                    }`}
-                  >
-                    <t.Icon size={18} className={tipo === t.id ? 'text-emerald-400' : 'text-white/30'} />
-                    <div>
-                      <p className="font-black text-sm uppercase tracking-wide">{t.label}</p>
-                      <p className="text-[10px] font-bold text-white/40">{t.desc}</p>
-                    </div>
-                  </button>
-                ))}
+                {tipos.map(t => {
+                  const Icon = FORMULA_ICONS[t.formula] || Layers
+                  return (
+                    <button
+                      type="button"
+                      key={t.id}
+                      onClick={() => setTipoId(t.id)}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all ${
+                        tipoId === t.id
+                          ? 'border-emerald-400 bg-emerald-400/10 text-white'
+                          : 'border-white/10 bg-white/5 text-white/60 hover:border-white/30'
+                      }`}
+                    >
+                      <Icon size={18} className={tipoId === t.id ? 'text-emerald-400' : 'text-white/30'} />
+                      <div>
+                        <p className="font-black text-sm uppercase tracking-wide">{t.nombre}</p>
+                        <p className="text-[10px] font-bold text-white/40">{t.descripcion || FORMULA_LABELS[t.formula]}</p>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
-            {/* Zona */}
             <div>
               <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">¿De qué zona es?</label>
               <div className="flex flex-wrap gap-2 mt-2">
