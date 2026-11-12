@@ -82,10 +82,30 @@ export async function POST(req: Request) {
     }
     const contexto = contextoCategoria[categoria] || contextoCategoria.proveedores
 
-    // 5. Llamar a Gemini
+    // 5. Llamar a Gemini (con reintentos ante 503)
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
- 
+
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+    const llamarGemini = async (intentos = 3): Promise<any> => {
+      for (let i = 0; i < intentos; i++) {
+        try {
+          return await model.generateContent([
+            { inlineData: { data: base64, mimeType: file.type } },
+            { text: prompt }
+          ])
+        } catch (err: any) {
+          const es503 = err.message?.includes('503') || err.status === 503
+          if (es503 && i < intentos - 1) {
+            await sleep(4000 * (i + 1)) // 4s, 8s
+            continue
+          }
+          throw err
+        }
+      }
+    }
+
     const prompt = `
       Analiza esta factura de proveedor y extrae los datos en formato JSON.
       El documento puede ser un PDF digital o un escaneo/foto de una factura en papel:
@@ -139,15 +159,7 @@ export async function POST(req: Request) {
         Si no hay ninguna referencia de obra, devuelve array vacío [].
     `
  
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64,
-          mimeType: file.type
-        }
-      },
-      { text: prompt }
-    ])
+    const result = await llamarGemini()
  
     const responseText = result.response.text()
  
@@ -214,9 +226,38 @@ export async function POST(req: Request) {
     })
  
   } catch (error: any) {
-    console.error('❌ [ANALIZAR FACTURA ERROR]:', error.message)
+    const msg: string = error.message || String(error)
+    const status: number = error.status || error.statusCode || 500
+    console.error('❌ [ANALIZAR FACTURA ERROR] status=%d msg=%s', status, msg)
+
+    // Mensajes amigables según el tipo de error de Gemini
+    if (status === 503 || msg.includes('503') || msg.toLowerCase().includes('unavailable') || msg.toLowerCase().includes('high demand')) {
+      return NextResponse.json(
+        { error: 'La IA está saturada ahora mismo. Inténtalo en unos minutos.' },
+        { status: 503 }
+      )
+    }
+    if (status === 429 || msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('exhausted')) {
+      return NextResponse.json(
+        { error: 'Límite de peticiones a la IA alcanzado. Espera unos minutos e inténtalo de nuevo.' },
+        { status: 429 }
+      )
+    }
+    if (status === 403 || msg.includes('403') || msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('api key')) {
+      return NextResponse.json(
+        { error: 'Error de autenticación con la IA (API key inválida o sin permisos). Contacta con soporte.' },
+        { status: 500 }
+      )
+    }
+    if (status === 404 || msg.includes('404') || msg.toLowerCase().includes('not found')) {
+      return NextResponse.json(
+        { error: 'Modelo de IA no disponible. Contacta con soporte.' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(
-      { error: 'Error interno: ' + error.message },
+      { error: 'Error interno: ' + msg },
       { status: 500 }
     )
   }
