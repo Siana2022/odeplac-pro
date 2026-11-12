@@ -10,6 +10,7 @@ import {
 import { toast } from 'sonner'
 import { renderPdfToImageUrl } from '@/lib/utils/pdfRender'
 
+type TipoSistema = 'trasdosados' | 'techos' | 'cortineros'
 interface Tramo { id: string; metros: number; x1: number | null; y1: number | null; x2: number | null; y2: number | null }
 interface Medicion { id: string; nombre: string; color: string; alto: number; plano_tramos: Tramo[] }
 interface Pt { x: number; y: number }
@@ -23,6 +24,44 @@ const COLORES = [
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseNum = (s: string) => parseFloat(String(s).replace(',', '.'))
 const sumML = (m: Medicion) => m.plano_tramos.reduce((a, t) => a + Number(t.metros || 0), 0)
+const sumM2 = (m: Medicion, tipo: TipoSistema) => {
+  if (tipo === 'cortineros') return 0
+  return sumML(m) * Number(m.alto || 0)
+}
+
+// Labels según tipo de sistema
+const CFG: Record<TipoSistema, { boton: string; altoLabel: string; altoPlaceholder: string; tramoLabel: string; tramoPlaceholder: string; sumarBtn: string; showAlto: boolean; showM2: boolean }> = {
+  trasdosados: {
+    boton: 'Nueva medición',
+    altoLabel: 'Altura (m)',
+    altoPlaceholder: 'Ej: 2,8',
+    tramoLabel: 'Metros del tramo',
+    tramoPlaceholder: 'Ej: 3,1',
+    sumarBtn: 'Sumar',
+    showAlto: true,
+    showM2: true,
+  },
+  techos: {
+    boton: 'Nuevo techo',
+    altoLabel: 'Ancho (m)',
+    altoPlaceholder: 'Ej: 3,5',
+    tramoLabel: 'Largo (m)',
+    tramoPlaceholder: 'Ej: 4,2',
+    sumarBtn: 'Añadir lado',
+    showAlto: true,
+    showM2: true,
+  },
+  cortineros: {
+    boton: 'Nuevo cortinero',
+    altoLabel: '',
+    altoPlaceholder: '',
+    tramoLabel: 'Metros de cortinero',
+    tramoPlaceholder: 'Ej: 2,3',
+    sumarBtn: 'Añadir tramo',
+    showAlto: false,
+    showM2: false,
+  },
+}
 
 export default function PlanoViewerPage() {
   const supabase = createClient()
@@ -52,6 +91,8 @@ export default function PlanoViewerPage() {
   const [form, setForm] = useState({ nombre: '', alto: '', color: COLORES[0].v })
   const [saving, setSaving] = useState(false)
 
+  const tipo: TipoSistema = (plano?.tipo_sistema || 'trasdosados') as TipoSistema
+  const cfg = CFG[tipo]
   const active = mediciones.find(m => m.id === activeId) || null
 
   /* ---------- Carga ---------- */
@@ -101,7 +142,6 @@ export default function PlanoViewerPage() {
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
   }, [planoId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Ancho real en pantalla del plano (para dimensionar trazos y textos)
   useEffect(() => {
     const el = svgRef.current
     if (!el) return
@@ -110,7 +150,6 @@ export default function PlanoViewerPage() {
     return () => ro.disconnect()
   }, [imgSize])
 
-  // Escape cancela el trazo
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { setFirstPoint(null); setPending(null); setDrawMode(false) }
@@ -122,9 +161,9 @@ export default function PlanoViewerPage() {
   /* ---------- Totales ---------- */
   const totales = useMemo(() => {
     const ml = mediciones.reduce((a, m) => a + sumML(m), 0)
-    const m2 = mediciones.reduce((a, m) => a + sumML(m) * Number(m.alto || 0), 0)
+    const m2 = mediciones.reduce((a, m) => a + sumM2(m, tipo), 0)
     return { ml, m2 }
-  }, [mediciones])
+  }, [mediciones, tipo])
 
   /* ---------- Mediciones (CRUD) ---------- */
   const abrirModal = (m?: Medicion) => {
@@ -135,9 +174,13 @@ export default function PlanoViewerPage() {
 
   const guardarMedicion = async (e: React.FormEvent) => {
     e.preventDefault()
-    const alto = parseNum(form.alto)
     if (!form.nombre.trim()) return toast.error('Escribe el nombre del sistema')
-    if (!(alto > 0)) return toast.error('Indica la altura en metros (ej: 2,8)')
+
+    let alto = 0
+    if (cfg.showAlto) {
+      alto = parseNum(form.alto)
+      if (!(alto > 0)) return toast.error(`Indica el ${cfg.altoLabel.toLowerCase()} (ej: ${cfg.altoPlaceholder.replace('Ej: ', '')})`)
+    }
 
     setSaving(true)
     const payload = { nombre: form.nombre.trim(), alto, color: form.color }
@@ -159,7 +202,7 @@ export default function PlanoViewerPage() {
   }
 
   const eliminarMedicion = async (m: Medicion) => {
-    if (!confirm(`¿Eliminar la medición "${m.nombre}" y sus tramos?`)) return
+    if (!confirm(`¿Eliminar "${m.nombre}" y sus tramos?`)) return
     const { error } = await supabase.from('plano_mediciones').delete().eq('id', m.id)
     if (error) return toast.error('Error: ' + error.message)
     setMediciones(prev => prev.filter(x => x.id !== m.id))
@@ -170,7 +213,7 @@ export default function PlanoViewerPage() {
   const guardarTramo = async () => {
     if (!active) return toast.error('Primero selecciona o crea una medición')
     const metros = parseNum(metrosInput)
-    if (!(metros > 0)) return toast.error('Introduce los metros del tramo (ej: 3,1)')
+    if (!(metros > 0)) return toast.error(`Introduce los metros (ej: 3,1)`)
 
     const row = {
       medicion_id: active.id,
@@ -192,7 +235,7 @@ export default function PlanoViewerPage() {
     setMediciones(prev => prev.map(x => (x.id === m.id ? { ...x, plano_tramos: x.plano_tramos.filter(y => y.id !== t.id) } : x)))
   }
 
-  /* ---------- Dibujo sobre el plano ---------- */
+  /* ---------- Dibujo ---------- */
   const toPoint = (e: React.MouseEvent<SVGSVGElement>): Pt => {
     const r = e.currentTarget.getBoundingClientRect()
     return {
@@ -204,7 +247,7 @@ export default function PlanoViewerPage() {
   const onSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!drawMode) return
     if (!active) return toast.error('Primero crea o selecciona una medición')
-    if (pending) return // hay un tramo esperando los metros
+    if (pending) return
     const p = toPoint(e)
     if (!firstPoint) {
       setFirstPoint(p)
@@ -217,16 +260,12 @@ export default function PlanoViewerPage() {
   }
 
   /* ---------- Render ---------- */
-  if (loading) {
-    return <div className="flex justify-center py-32"><Loader2 className="animate-spin h-12 w-12 text-emerald-400" /></div>
-  }
-  if (!plano) {
-    return <div className="p-10 text-white">Plano no encontrado. <Link className="underline text-emerald-400" href={`/dashboard/planos/${obraId}`}>Volver</Link></div>
-  }
+  if (loading) return <div className="flex justify-center py-32"><Loader2 className="animate-spin h-12 w-12 text-emerald-400" /></div>
+  if (!plano) return <div className="p-10 text-white">Plano no encontrado. <Link className="underline text-emerald-400" href={`/dashboard/planos/${obraId}`}>Volver</Link></div>
 
   const W = imgSize?.w || 1000
   const H = imgSize?.h || 1000
-  const unit = dispW > 0 ? W / dispW : 1 // unidades del viewBox por píxel de pantalla
+  const unit = dispW > 0 ? W / dispW : 1
   const px = (n: number) => n * unit
 
   const renderLinea = (key: string, { a, b, color, dashed = false, bold = false, label }: { a: Pt; b: Pt; color: string; dashed?: boolean; bold?: boolean; label?: string }) => {
@@ -247,6 +286,42 @@ export default function PlanoViewerPage() {
     )
   }
 
+  /* ── Helpers de fórmula por tipo ── */
+  const formulaMedicion = (m: Medicion) => {
+    const ml = sumML(m)
+    if (tipo === 'cortineros') {
+      const tramos = m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')
+      return tramos
+        ? <span className="text-[11px] font-bold text-white/60 break-words">{tramos} = <span className="text-white font-black">{fmt(ml)} ml</span></span>
+        : null
+    }
+    if (tipo === 'techos') {
+      const largos = m.plano_tramos.map(t => fmt(Number(t.metros)))
+      const ancho = fmt(Number(m.alto))
+      if (!m.plano_tramos.length) return null
+      return (
+        <span className="text-[11px] font-bold text-white/60 break-words">
+          {largos.join(' + ')} (largo) × {ancho} (ancho) = <span className="font-black" style={{ color: m.color }}>{fmt(ml * Number(m.alto))} m²</span>
+        </span>
+      )
+    }
+    // trasdosados
+    const tramos = m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')
+    return tramos
+      ? <span className="text-[11px] font-bold text-white/60 break-words">
+          {tramos} = <span className="text-white font-black">{fmt(ml)} ml</span>
+          {' '}× {fmt(Number(m.alto))} = <span className="font-black" style={{ color: m.color }}>{fmt(ml * Number(m.alto))} m²</span>
+        </span>
+      : null
+  }
+
+  const labelMedicion = (m: Medicion) => {
+    const ml = sumML(m)
+    const m2 = sumM2(m, tipo)
+    if (tipo === 'cortineros') return `${fmt(ml)} ml`
+    return `${fmt(ml)} ml · ${fmt(m2)} m²`
+  }
+
   return (
     <div className="w-full p-4 lg:p-6 text-white font-sans flex flex-col gap-4 lg:h-screen">
       {/* CABECERA */}
@@ -258,6 +333,9 @@ export default function PlanoViewerPage() {
           <h1 className="text-2xl font-black uppercase italic tracking-tighter truncate">
             {plano.nombre} {plano.zona && <span className="text-emerald-400 text-base not-italic">· {plano.zona}</span>}
           </h1>
+          <p className="text-[10px] font-black uppercase text-white/30 tracking-widest mt-0.5">
+            {CFG[tipo].boton.replace('Nuevo ', '').replace('Nueva ', '')}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -265,15 +343,17 @@ export default function PlanoViewerPage() {
             <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
             <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
           </div>
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
-            <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
-            <p className="font-black italic text-lg leading-tight">{fmt(totales.m2)}</p>
-          </div>
+          {tipo !== 'cortineros' && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
+              <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
+              <p className="font-black italic text-lg leading-tight">{fmt(totales.m2)}</p>
+            </div>
+          )}
           <button
             onClick={() => abrirModal()}
             className="flex items-center gap-2 bg-white text-[#1e3d6b] px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 hover:text-white transition-all shadow-xl"
           >
-            <Plus size={16} /> Añadir nueva medición
+            <Plus size={16} /> {cfg.boton}
           </button>
         </div>
       </div>
@@ -290,7 +370,7 @@ export default function PlanoViewerPage() {
               <PenLine size={14} /> {drawMode ? 'Dibujando...' : 'Dibujar tramo'}
             </button>
             <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
-              {!drawMode ? 'Activa el modo dibujo' : pending ? 'Escribe los metros del tramo' : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
+              {!drawMode ? 'Activa el modo dibujo' : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
             </span>
             <div className="ml-auto flex items-center gap-1">
               <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))} className="p-2 rounded-lg bg-white/10 hover:bg-white/20"><Minus size={14} /></button>
@@ -346,19 +426,23 @@ export default function PlanoViewerPage() {
         {/* PANEL MEDICIONES */}
         <div className="bg-white/5 border border-white/10 rounded-3xl flex flex-col min-h-0 overflow-hidden">
           <div className="p-4 border-b border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40">
-            Mediciones ({mediciones.length})
+            {tipo === 'trasdosados' && 'Mediciones'}
+            {tipo === 'techos' && 'Techos'}
+            {tipo === 'cortineros' && 'Cortineros'}
+            {' '}({mediciones.length})
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {mediciones.length === 0 && (
               <div className="text-center py-12 text-white/20 text-xs font-black uppercase italic border-2 border-dashed border-white/10 rounded-2xl px-4">
                 <MousePointerClick className="mx-auto mb-2" />
-                Pulsa «Añadir nueva medición» para crear el primer sistema
+                Pulsa «{cfg.boton}» para empezar
               </div>
             )}
 
             {mediciones.map(m => {
               const ml = sumML(m)
+              const m2 = sumM2(m, tipo)
               const isActive = m.id === activeId
               return (
                 <div
@@ -371,35 +455,41 @@ export default function PlanoViewerPage() {
                     <span className="h-4 w-4 rounded-full mt-1 shrink-0" style={{ background: m.color }} />
                     <div className="flex-1 min-w-0">
                       <p className="font-black uppercase text-sm leading-tight break-words">{m.nombre}</p>
-                      <p className="text-[10px] font-bold uppercase text-white/40">Altura {fmt(Number(m.alto))} m</p>
+                      {cfg.showAlto && (
+                        <p className="text-[10px] font-bold uppercase text-white/40">
+                          {tipo === 'techos' ? 'Ancho' : 'Altura'}: {fmt(Number(m.alto))} m
+                        </p>
+                      )}
                     </div>
                     <button onClick={e => { e.stopPropagation(); abrirModal(m) }} className="p-1.5 text-white/30 hover:text-white"><Pencil size={14} /></button>
                     <button onClick={e => { e.stopPropagation(); eliminarMedicion(m) }} className="p-1.5 text-red-400/50 hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 mt-3">
+                  {/* Stats */}
+                  <div className={`grid gap-2 mt-3 ${cfg.showM2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                     <div className="bg-black/30 rounded-xl p-2 text-center">
-                      <p className="text-[9px] font-black uppercase text-white/40">ML</p>
+                      <p className="text-[9px] font-black uppercase text-white/40">
+                        {tipo === 'cortineros' ? 'Total ML' : 'ML'}
+                      </p>
                       <p className="font-black italic">{fmt(ml)}</p>
                     </div>
-                    <div className="rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
-                      <p className="text-[9px] font-black uppercase text-white/50">Total m²</p>
-                      <p className="font-black italic">{fmt(ml * Number(m.alto))}</p>
-                    </div>
+                    {cfg.showM2 && (
+                      <div className="rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
+                        <p className="text-[9px] font-black uppercase text-white/50">Total m²</p>
+                        <p className="font-black italic">{fmt(m2)}</p>
+                      </div>
+                    )}
                   </div>
 
                   {isActive && (
                     <div className="mt-3 space-y-3" onClick={e => e.stopPropagation()}>
                       {m.plano_tramos.length > 0 && (
                         <>
-                          <p className="text-[11px] font-bold text-white/60 break-words">
-                            {m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')} = <span className="text-white font-black">{fmt(ml)} ml</span>
-                            {' '}× {fmt(Number(m.alto))} = <span className="font-black" style={{ color: m.color }}>{fmt(ml * Number(m.alto))} m²</span>
-                          </p>
+                          <div className="text-[11px]">{formulaMedicion(m)}</div>
                           <div className="flex flex-wrap gap-1.5">
-                            {m.plano_tramos.map(t => (
+                            {m.plano_tramos.map((t, idx) => (
                               <span key={t.id} className="inline-flex items-center gap-1 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-black">
-                                {fmt(Number(t.metros))}
+                                {tipo === 'techos' ? `Largo ${idx + 1}: ` : ''}{fmt(Number(t.metros))}
                                 <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
                               </span>
                             ))}
@@ -414,7 +504,7 @@ export default function PlanoViewerPage() {
                           value={metrosInput}
                           onChange={e => setMetrosInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); guardarTramo() } }}
-                          placeholder={pending ? 'Metros del tramo dibujado' : 'Metros (ej: 3,1)'}
+                          placeholder={pending ? cfg.tramoPlaceholder : cfg.tramoPlaceholder}
                           className={`flex-1 min-w-0 bg-black/40 border rounded-xl px-3 py-2 text-sm font-bold outline-none ${pending ? 'border-emerald-400' : 'border-white/10 focus:border-white/40'}`}
                         />
                         <button
@@ -422,7 +512,7 @@ export default function PlanoViewerPage() {
                           className="px-3 rounded-xl font-black text-[#0f172a] flex items-center gap-1 text-xs uppercase"
                           style={{ background: m.color }}
                         >
-                          <Check size={14} /> Sumar
+                          <Check size={14} /> {cfg.sumarBtn}
                         </button>
                       </div>
                       {pending && (
@@ -444,31 +534,41 @@ export default function PlanoViewerPage() {
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
           <form onSubmit={guardarMedicion} className="bg-[#0f172a] border border-white/10 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-5">
             <div className="flex justify-between items-start">
-              <h2 className="text-2xl font-black uppercase italic text-emerald-400">{modal.id ? 'Editar medición' : 'Nueva medición'}</h2>
+              <h2 className="text-2xl font-black uppercase italic text-emerald-400">
+                {modal.id ? 'Editar' : cfg.boton}
+              </h2>
               <button type="button" onClick={() => setModal(null)} className="p-2 bg-white/5 rounded-xl hover:bg-white/10"><X size={20} /></button>
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Sistema / nombre</label>
+              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">
+                {tipo === 'trasdosados' ? 'Sistema / nombre' : tipo === 'techos' ? 'Nombre del techo' : 'Nombre del cortinero'}
+              </label>
               <input
                 autoFocus
                 value={form.nombre}
                 onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
-                placeholder="Ej: Tabique 70/600 doble placa"
+                placeholder={
+                  tipo === 'trasdosados' ? 'Ej: Tabique 70/600 doble placa' :
+                  tipo === 'techos' ? 'Ej: Techo habitación principal' :
+                  'Ej: Cortinero salón'
+                }
                 className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
               />
             </div>
 
-            <div>
-              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Altura (m)</label>
-              <input
-                inputMode="decimal"
-                value={form.alto}
-                onChange={e => setForm(f => ({ ...f, alto: e.target.value }))}
-                placeholder="Ej: 2,8"
-                className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
-              />
-            </div>
+            {cfg.showAlto && (
+              <div>
+                <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">{cfg.altoLabel}</label>
+                <input
+                  inputMode="decimal"
+                  value={form.alto}
+                  onChange={e => setForm(f => ({ ...f, alto: e.target.value }))}
+                  placeholder={cfg.altoPlaceholder}
+                  className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
+                />
+              </div>
+            )}
 
             <div>
               <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Color de la etiqueta</label>

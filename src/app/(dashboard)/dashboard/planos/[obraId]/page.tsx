@@ -4,11 +4,17 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight } from 'lucide-react'
+import { ArrowLeft, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight, Pencil, Check, Layers, Square, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileName } from '@/lib/utils/pdfRender'
 
 const ZONAS = ['Sótano', 'Planta baja', 'Primera planta', 'Segunda planta', 'Tercera planta', 'Ático', 'Cubierta', 'Exterior']
+
+const TIPOS_SISTEMA = [
+  { id: 'trasdosados', label: 'Trasdosados / Tabiques', desc: 'ML × alto = m²', Icon: Layers },
+  { id: 'techos',      label: 'Falsos techos',          desc: 'Largo × Ancho = m²', Icon: Square },
+  { id: 'cortineros',  label: 'Cortineros',             desc: 'Suma de ML', Icon: Minus },
+]
 
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -22,11 +28,17 @@ export default function PlanosObraPage() {
   const [totales, setTotales] = useState<Record<string, { ml: number; m2: number }>>({})
   const [loading, setLoading] = useState(true)
 
+  // Modal nuevo plano
   const [modal, setModal] = useState(false)
   const [zona, setZona] = useState('')
   const [nombre, setNombre] = useState('')
+  const [tipo, setTipo] = useState('trasdosados')
   const [archivo, setArchivo] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // Renombrar
+  const [renombrando, setRenombrando] = useState<string | null>(null)
+  const [nuevoNombre, setNuevoNombre] = useState('')
 
   const load = async () => {
     const [obraRes, planosRes] = await Promise.all([
@@ -42,12 +54,17 @@ export default function PlanosObraPage() {
         .from('plano_mediciones')
         .select('plano_id, alto, plano_tramos(metros)')
         .in('plano_id', lista.map((p: any) => p.id))
+
       const t: Record<string, { ml: number; m2: number }> = {}
       ;(meds || []).forEach((m: any) => {
         const ml = (m.plano_tramos || []).reduce((a: number, x: any) => a + Number(x.metros || 0), 0)
         t[m.plano_id] = t[m.plano_id] || { ml: 0, m2: 0 }
         t[m.plano_id].ml += ml
-        t[m.plano_id].m2 += ml * Number(m.alto || 0)
+        // Cortineros no generan m²
+        const planoTipo = lista.find((p: any) => p.id === m.plano_id)?.tipo_sistema || 'trasdosados'
+        if (planoTipo !== 'cortineros') {
+          t[m.plano_id].m2 += ml * Number(m.alto || 0)
+        }
       })
       setTotales(t)
     }
@@ -57,10 +74,9 @@ export default function PlanosObraPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [obraId])
 
-  const abrirModal = () => { setZona(''); setNombre(''); setArchivo(null); setModal(true) }
+  const abrirModal = () => { setZona(''); setNombre(''); setTipo('trasdosados'); setArchivo(null); setModal(true) }
 
   const onZona = (z: string) => {
-    // Si el nombre estaba vacío o era el de la zona anterior, lo sustituimos
     setNombre(prev => (!prev || prev === zona ? (z ? `Plano ${z.toLowerCase()}` : '') : prev))
     setZona(z)
   }
@@ -85,7 +101,9 @@ export default function PlanosObraPage() {
         zona: zona || null,
         archivo_path: path,
         mime_type: file.type,
+        tipo_sistema: tipo,
       }]).select('id').single()
+
       if (error) {
         await supabase.storage.from('planos').remove([path])
         throw new Error(error.message)
@@ -109,7 +127,19 @@ export default function PlanosObraPage() {
     load()
   }
 
+  const renombrarPlano = async (p: any) => {
+    if (!nuevoNombre.trim()) return setRenombrando(null)
+    if (nuevoNombre.trim() === p.nombre) return setRenombrando(null)
+    const { error } = await supabase.from('planos').update({ nombre: nuevoNombre.trim() }).eq('id', p.id)
+    if (error) return toast.error('Error al renombrar')
+    toast.success('Nombre actualizado')
+    setRenombrando(null)
+    load()
+  }
+
   const totalObra = Object.values(totales).reduce((a, t) => ({ ml: a.ml + t.ml, m2: a.m2 + t.m2 }), { ml: 0, m2: 0 })
+
+  const tipoInfo = (id: string) => TIPOS_SISTEMA.find(t => t.id === id) || TIPOS_SISTEMA[0]
 
   return (
     <div className="w-full max-w-[1100px] mx-auto p-6 lg:p-10 text-white font-sans">
@@ -139,11 +169,11 @@ export default function PlanosObraPage() {
           {planos.length > 0 && (
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="bg-white/5 border border-white/10 rounded-3xl p-5">
-                <p className="text-[10px] font-black uppercase text-white/40 tracking-widest">ML totales de la obra</p>
+                <p className="text-[10px] font-black uppercase text-white/40 tracking-widest">ML totales</p>
                 <p className="text-3xl font-black italic">{fmt(totalObra.ml)} <span className="text-sm text-white/40">ml</span></p>
               </div>
               <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-3xl p-5">
-                <p className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Total m² de la obra</p>
+                <p className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Total m²</p>
                 <p className="text-3xl font-black italic">{fmt(totalObra.m2)} <span className="text-sm text-white/40">m²</span></p>
               </div>
             </div>
@@ -157,28 +187,62 @@ export default function PlanosObraPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {planos.map(p => {
                 const t = totales[p.id]
+                const ti = tipoInfo(p.tipo_sistema)
+                const esRenombrando = renombrando === p.id
                 return (
                   <div key={p.id} className="relative group bg-white/5 border border-white/10 rounded-[2rem] hover:bg-white/10 hover:border-emerald-400/40 transition-all">
-                    <Link href={`/dashboard/planos/${obraId}/${p.id}`} className="flex items-center gap-4 p-6 pr-16">
+                    <div className="flex items-center gap-4 p-6 pr-20">
                       <div className="h-14 w-14 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
                         <Ruler size={26} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h2 className="font-black uppercase italic truncate">{p.nombre}</h2>
-                        <p className="text-[10px] font-bold uppercase text-white/40">{p.zona || 'Sin zona'}</p>
+                        {esRenombrando ? (
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            <input
+                              autoFocus
+                              value={nuevoNombre}
+                              onChange={e => setNuevoNombre(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') renombrarPlano(p); if (e.key === 'Escape') setRenombrando(null) }}
+                              className="bg-black/40 border border-emerald-400 rounded-xl px-3 py-1.5 text-sm font-bold outline-none flex-1 min-w-0"
+                            />
+                            <button onClick={() => renombrarPlano(p)} className="p-1.5 bg-emerald-400 text-[#0f172a] rounded-lg"><Check size={14} /></button>
+                            <button onClick={() => setRenombrando(null)} className="p-1.5 bg-white/10 rounded-lg"><X size={14} /></button>
+                          </div>
+                        ) : (
+                          <Link href={`/dashboard/planos/${obraId}/${p.id}`} className="block">
+                            <h2 className="font-black uppercase italic truncate">{p.nombre}</h2>
+                          </Link>
+                        )}
+                        <p className="text-[10px] font-bold uppercase text-white/40">{p.zona || 'Sin zona'} · {ti.label}</p>
                         <p className="text-[11px] font-black text-emerald-400 mt-1">
-                          {fmt(t?.ml || 0)} ml · {fmt(t?.m2 || 0)} m²
+                          {fmt(t?.ml || 0)} ml
+                          {p.tipo_sistema !== 'cortineros' && ` · ${fmt(t?.m2 || 0)} m²`}
                         </p>
                       </div>
-                      <ChevronRight className="text-white/20 group-hover:text-white" />
-                    </Link>
-                    <button
-                      onClick={() => eliminarPlano(p)}
-                      className="absolute top-4 right-4 p-2 rounded-xl text-red-400/50 hover:bg-red-500 hover:text-white transition-all"
-                      title="Eliminar plano"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                      {!esRenombrando && (
+                        <Link href={`/dashboard/planos/${obraId}/${p.id}`} className="text-white/20 group-hover:text-white">
+                          <ChevronRight />
+                        </Link>
+                      )}
+                    </div>
+
+                    {/* Botones acción */}
+                    <div className="absolute top-3 right-3 flex gap-1">
+                      <button
+                        onClick={() => { setRenombrando(p.id); setNuevoNombre(p.nombre) }}
+                        className="p-2 rounded-xl text-white/30 hover:bg-white/10 hover:text-white transition-all"
+                        title="Renombrar"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={() => eliminarPlano(p)}
+                        className="p-2 rounded-xl text-red-400/50 hover:bg-red-500 hover:text-white transition-all"
+                        title="Eliminar plano"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -190,12 +254,38 @@ export default function PlanosObraPage() {
       {/* MODAL AÑADIR PLANO */}
       {modal && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-          <form onSubmit={guardarPlano} className="bg-[#0f172a] border border-white/10 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl space-y-5">
+          <form onSubmit={guardarPlano} className="bg-[#0f172a] border border-white/10 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start">
               <h2 className="text-2xl font-black uppercase italic text-emerald-400">Nuevo plano</h2>
               <button type="button" onClick={() => setModal(false)} className="p-2 bg-white/5 rounded-xl hover:bg-white/10"><X size={20} /></button>
             </div>
 
+            {/* Tipo de sistema */}
+            <div>
+              <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">¿Qué tipo de sistema vas a medir?</label>
+              <div className="grid grid-cols-1 gap-2 mt-3">
+                {TIPOS_SISTEMA.map(t => (
+                  <button
+                    type="button"
+                    key={t.id}
+                    onClick={() => setTipo(t.id)}
+                    className={`flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all ${
+                      tipo === t.id
+                        ? 'border-emerald-400 bg-emerald-400/10 text-white'
+                        : 'border-white/10 bg-white/5 text-white/60 hover:border-white/30'
+                    }`}
+                  >
+                    <t.Icon size={18} className={tipo === t.id ? 'text-emerald-400' : 'text-white/30'} />
+                    <div>
+                      <p className="font-black text-sm uppercase tracking-wide">{t.label}</p>
+                      <p className="text-[10px] font-bold text-white/40">{t.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Zona */}
             <div>
               <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">¿De qué zona es?</label>
               <div className="flex flex-wrap gap-2 mt-2">
