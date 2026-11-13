@@ -74,7 +74,7 @@ export default function PlanosObraPage() {
     if (lista.length > 0) {
       const { data: meds } = await supabase
         .from('plano_mediciones')
-        .select('plano_id, alto, plano_tramos(metros)')
+        .select('plano_id, alto, plano_tramos(*)')
         .in('plano_id', lista.map((p: any) => p.id))
 
       const t: Record<string, { ml: number; m2: number }> = {}
@@ -83,7 +83,11 @@ export default function PlanosObraPage() {
         t[m.plano_id] = t[m.plano_id] || { ml: 0, m2: 0 }
         t[m.plano_id].ml += ml
         const plano = lista.find((p: any) => p.id === m.plano_id)
-        if (getFormula(plano) !== 'suma_ml') {
+        const formula = getFormula(plano)
+        if (formula === 'largo_x_ancho') {
+          t[m.plano_id].m2 += (m.plano_tramos || []).reduce(
+            (a: number, x: any) => a + Number(x.metros || 0) * Number(x.metros_b != null ? x.metros_b : m.alto || 0), 0)
+        } else if (formula !== 'suma_ml') {
           t[m.plano_id].m2 += ml * Number(m.alto || 0)
         }
       })

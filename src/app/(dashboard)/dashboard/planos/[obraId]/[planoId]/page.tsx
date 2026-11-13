@@ -11,7 +11,10 @@ import { toast } from 'sonner'
 import { renderPdfToImageUrl } from '@/lib/utils/pdfRender'
 
 type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml'
-interface Tramo { id: string; metros: number; x1: number | null; y1: number | null; x2: number | null; y2: number | null }
+interface Tramo {
+  id: string; metros: number; x1: number | null; y1: number | null; x2: number | null; y2: number | null
+  metros_b?: number | null; x3?: number | null; y3?: number | null; x4?: number | null; y4?: number | null
+}
 interface Medicion { id: string; nombre: string; color: string; alto: number; plano_tramos: Tramo[] }
 interface Pt { x: number; y: number }
 
@@ -31,8 +34,11 @@ const TIPO_SISTEMA_A_FORMULA: Record<string, Formula> = {
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseNum = (s: string) => parseFloat(String(s).replace(',', '.'))
 const sumML = (m: Medicion) => m.plano_tramos.reduce((a, t) => a + Number(t.metros || 0), 0)
+// Techo nuevo: largo × ancho propios de cada techo. Techos antiguos (sin metros_b): largo × ancho de la medición.
+const areaTecho = (m: Medicion, t: Tramo) => Number(t.metros || 0) * Number(t.metros_b != null ? t.metros_b : m.alto || 0)
 const sumM2 = (m: Medicion, formula: Formula) => {
   if (formula === 'suma_ml') return 0
+  if (formula === 'largo_x_ancho') return m.plano_tramos.reduce((a, t) => a + areaTecho(m, t), 0)
   return sumML(m) * Number(m.alto || 0)
 }
 
@@ -48,13 +54,13 @@ const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: 
     showM2: true,
   },
   largo_x_ancho: {
-    boton: 'Nuevo techo',
-    altoLabel: 'Ancho (m)',
-    altoPlaceholder: 'Ej: 3,5',
-    tramoLabel: 'Largo (m)',
+    boton: 'Nueva medición',
+    altoLabel: '',
+    altoPlaceholder: '',
+    tramoLabel: 'medida del lado',
     tramoPlaceholder: 'Ej: 4,2',
-    sumarBtn: 'Añadir lado',
-    showAlto: true,
+    sumarBtn: 'Siguiente lado',
+    showAlto: false,
     showM2: true,
   },
   suma_ml: {
@@ -88,6 +94,7 @@ export default function PlanoViewerPage() {
   const [cursor, setCursor] = useState<Pt | null>(null)
   const [pending, setPending] = useState<{ a: Pt; b: Pt } | null>(null)
   const [metrosInput, setMetrosInput] = useState('')
+  const [ladoA, setLadoA] = useState<{ a: Pt; b: Pt; metros: number } | null>(null)
   const metrosRef = useRef<HTMLInputElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
 
@@ -156,7 +163,7 @@ export default function PlanoViewerPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setFirstPoint(null); setPending(null); setDrawMode(false) }
+      if (e.key === 'Escape') { setFirstPoint(null); setPending(null); setLadoA(null); setDrawMode(false) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -187,7 +194,10 @@ export default function PlanoViewerPage() {
     }
 
     setSaving(true)
-    const payload = { nombre: form.nombre.trim(), alto, color: form.color }
+    // En techos no se pide ancho: al editar se conserva el ancho antiguo para techos previos.
+    const payload: { nombre: string; color: string; alto?: number } = { nombre: form.nombre.trim(), color: form.color }
+    if (cfg.showAlto) payload.alto = alto
+    else if (!modal?.id) payload.alto = 0
     if (modal?.id) {
       const { error } = await supabase.from('plano_mediciones').update(payload).eq('id', modal.id)
       setSaving(false)
@@ -219,17 +229,36 @@ export default function PlanoViewerPage() {
     const metros = parseNum(metrosInput)
     if (!(metros > 0)) return toast.error(`Introduce los metros (ej: 3,1)`)
 
-    const row = {
+    // Techos: primer lado en memoria, el techo se guarda al introducir el segundo lado
+    if (formula === 'largo_x_ancho' && !ladoA) {
+      if (!pending) return toast.error('Dibuja primero el trazo del primer lado')
+      setLadoA({ a: pending.a, b: pending.b, metros })
+      setPending(null)
+      setMetrosInput('')
+      setDrawMode(true)
+      return
+    }
+
+    const row: Record<string, any> = {
       medicion_id: active.id,
-      metros,
-      x1: pending?.a.x ?? null, y1: pending?.a.y ?? null,
-      x2: pending?.b.x ?? null, y2: pending?.b.y ?? null,
+      metros: formula === 'largo_x_ancho' ? ladoA!.metros : metros,
+      x1: formula === 'largo_x_ancho' ? ladoA!.a.x : pending?.a.x ?? null,
+      y1: formula === 'largo_x_ancho' ? ladoA!.a.y : pending?.a.y ?? null,
+      x2: formula === 'largo_x_ancho' ? ladoA!.b.x : pending?.b.x ?? null,
+      y2: formula === 'largo_x_ancho' ? ladoA!.b.y : pending?.b.y ?? null,
+    }
+    if (formula === 'largo_x_ancho') {
+      if (!pending) return toast.error('Dibuja el trazo del segundo lado')
+      row.metros_b = metros
+      row.x3 = pending.a.x; row.y3 = pending.a.y
+      row.x4 = pending.b.x; row.y4 = pending.b.y
     }
     const { data, error } = await supabase.from('plano_tramos').insert([row]).select('*').single()
     if (error || !data) return toast.error('Error al guardar: ' + (error?.message || ''))
 
     setMediciones(prev => prev.map(m => (m.id === active.id ? { ...m, plano_tramos: [...m.plano_tramos, data as Tramo] } : m)))
     setPending(null)
+    setLadoA(null)
     setMetrosInput('')
   }
 
@@ -299,13 +328,18 @@ export default function PlanoViewerPage() {
         : null
     }
     if (formula === 'largo_x_ancho') {
-      const largos = m.plano_tramos.map(t => fmt(Number(t.metros)))
-      const ancho = fmt(Number(m.alto))
       if (!m.plano_tramos.length) return null
       return (
-        <span className="text-[11px] font-bold text-white/60 break-words">
-          {largos.join(' + ')} (largo) × {ancho} (ancho) = <span className="font-black" style={{ color: m.color }}>{fmt(ml * Number(m.alto))} m²</span>
-        </span>
+        <div className="space-y-1">
+          {m.plano_tramos.map((t, idx) => (
+            <div key={t.id} className="flex items-center gap-1.5 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-bold text-white/70">
+              <span className="flex-1 min-w-0 break-words">
+                Techo {idx + 1}: {fmt(Number(t.metros))} × {fmt(Number(t.metros_b != null ? t.metros_b : m.alto))} = <span className="font-black" style={{ color: m.color }}>{fmt(areaTecho(m, t))} m²</span>
+              </span>
+              <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
       )
     }
     // ml_x_alto
@@ -322,6 +356,7 @@ export default function PlanoViewerPage() {
     const ml = sumML(m)
     const m2 = sumM2(m, formula)
     if (formula === 'suma_ml') return `${fmt(ml)} ml`
+    if (formula === 'largo_x_ancho') return `${fmt(m2)} m²`
     return `${fmt(ml)} ml · ${fmt(m2)} m²`
   }
 
@@ -350,10 +385,12 @@ export default function PlanoViewerPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-2 text-right">
-            <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
-            <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
-          </div>
+          {formula !== 'largo_x_ancho' && (
+            <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-2 text-right">
+              <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
+              <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
+            </div>
+          )}
           {formula !== 'suma_ml' && (
             <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
               <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
@@ -374,14 +411,19 @@ export default function PlanoViewerPage() {
         <div className="relative bg-white/5 border border-white/10 rounded-3xl overflow-hidden flex flex-col min-h-[60vh]">
           <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-black/20">
             <button
-              onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null) }}
+              onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null); setLadoA(null) }}
               disabled={!active}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all disabled:opacity-30 ${drawMode ? 'bg-emerald-400 text-[#0f172a]' : 'bg-white/10 hover:bg-white/20'}`}
             >
-              <PenLine size={14} /> {drawMode ? 'Dibujando...' : 'Dibujar tramo'}
+              <PenLine size={14} /> {drawMode ? 'Dibujando...' : formula === 'largo_x_ancho' ? 'Añadir techo' : 'Dibujar tramo'}
             </button>
             <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
-              {!drawMode ? 'Activa el modo dibujo' : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
+              {!drawMode ? 'Activa el modo dibujo'
+                : formula === 'largo_x_ancho'
+                  ? (pending ? `Escribe la medida del ${ladoA ? 'segundo' : 'primer'} lado`
+                    : firstPoint ? `Clic en el punto final del ${ladoA ? 'segundo' : 'primer'} lado`
+                    : `Clic en el punto inicial del ${ladoA ? 'segundo' : 'primer'} lado`)
+                  : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
             </span>
             <div className="ml-auto flex items-center gap-1">
               <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))} className="p-2 rounded-lg bg-white/10 hover:bg-white/20"><Minus size={14} /></button>
@@ -417,13 +459,20 @@ export default function PlanoViewerPage() {
                     onMouseMove={e => { if (firstPoint) setCursor(toPoint(e)) }}
                   >
                     {mediciones.flatMap(m =>
-                      m.plano_tramos
-                        .filter(t => t.x1 != null && t.y1 != null && t.x2 != null && t.y2 != null)
-                        .map(t => (
-                          renderLinea(t.id, { a: { x: Number(t.x1), y: Number(t.y1) }, b: { x: Number(t.x2), y: Number(t.y2) },
-                            color: m.color, bold: m.id === activeId, label: fmt(Number(t.metros)) })
-                        ))
+                      m.plano_tramos.flatMap(t => {
+                        const lineas = []
+                        if (t.x1 != null && t.y1 != null && t.x2 != null && t.y2 != null) {
+                          lineas.push(renderLinea(t.id, { a: { x: Number(t.x1), y: Number(t.y1) }, b: { x: Number(t.x2), y: Number(t.y2) },
+                            color: m.color, bold: m.id === activeId, label: fmt(Number(t.metros)) }))
+                        }
+                        if (t.x3 != null && t.y3 != null && t.x4 != null && t.y4 != null) {
+                          lineas.push(renderLinea(t.id + '-b', { a: { x: Number(t.x3), y: Number(t.y3) }, b: { x: Number(t.x4), y: Number(t.y4) },
+                            color: m.color, bold: m.id === activeId, label: fmt(Number(t.metros_b)) }))
+                        }
+                        return lineas
+                      })
                     )}
+                    {ladoA && active && renderLinea('ladoA', { a: ladoA.a, b: ladoA.b, color: active.color, bold: true, label: fmt(ladoA.metros) })}
                     {pending && active && renderLinea('pending', { a: pending.a, b: pending.b, color: active.color, dashed: true, bold: true })}
                     {firstPoint && !cursor && <circle cx={firstPoint.x * W} cy={firstPoint.y * H} r={px(5)} fill={active?.color} />}
                     {firstPoint && cursor && active && renderLinea('rubber', { a: firstPoint, b: cursor, color: active.color, dashed: true })}
@@ -455,7 +504,7 @@ export default function PlanoViewerPage() {
               return (
                 <div
                   key={m.id}
-                  onClick={() => { setActiveId(m.id); setPending(null); setFirstPoint(null) }}
+                  onClick={() => { setActiveId(m.id); setPending(null); setFirstPoint(null); setLadoA(null) }}
                   className={`rounded-2xl border p-4 cursor-pointer transition-all ${isActive ? 'bg-white/10' : 'bg-black/20 border-white/5 hover:bg-white/5'}`}
                   style={isActive ? { borderColor: m.color } : undefined}
                 >
@@ -465,7 +514,7 @@ export default function PlanoViewerPage() {
                       <p className="font-black uppercase text-sm leading-tight break-words">{m.nombre}</p>
                       {cfg.showAlto && (
                         <p className="text-[10px] font-bold uppercase text-white/40">
-                          {formula === 'largo_x_ancho' ? 'Ancho' : 'Altura'}: {fmt(Number(m.alto))} m
+                          Altura: {fmt(Number(m.alto))} m
                         </p>
                       )}
                     </div>
@@ -473,13 +522,15 @@ export default function PlanoViewerPage() {
                     <button onClick={e => { e.stopPropagation(); eliminarMedicion(m) }} className="p-1.5 text-red-400/50 hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
 
-                  <div className={`grid gap-2 mt-3 ${cfg.showM2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                    <div className="bg-black/30 rounded-xl p-2 text-center">
-                      <p className="text-[9px] font-black uppercase text-white/40">
-                        {formula === 'suma_ml' ? 'Total ML' : 'ML'}
-                      </p>
-                      <p className="font-black italic">{fmt(ml)}</p>
-                    </div>
+                  <div className={`grid gap-2 mt-3 ${cfg.showM2 && formula !== 'largo_x_ancho' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    {formula !== 'largo_x_ancho' && (
+                      <div className="bg-black/30 rounded-xl p-2 text-center">
+                        <p className="text-[9px] font-black uppercase text-white/40">
+                          {formula === 'suma_ml' ? 'Total ML' : 'ML'}
+                        </p>
+                        <p className="font-black italic">{fmt(ml)}</p>
+                      </div>
+                    )}
                     {cfg.showM2 && (
                       <div className="rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
                         <p className="text-[9px] font-black uppercase text-white/50">Total m²</p>
@@ -493,14 +544,16 @@ export default function PlanoViewerPage() {
                       {m.plano_tramos.length > 0 && (
                         <>
                           <div className="text-[11px]">{formulaMedicion(m)}</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {m.plano_tramos.map((t, idx) => (
-                              <span key={t.id} className="inline-flex items-center gap-1 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-black">
-                                {formula === 'largo_x_ancho' ? `Largo ${idx + 1}: ` : ''}{fmt(Number(t.metros))}
-                                <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
-                              </span>
-                            ))}
-                          </div>
+                          {formula !== 'largo_x_ancho' && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {m.plano_tramos.map(t => (
+                                <span key={t.id} className="inline-flex items-center gap-1 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-black">
+                                  {fmt(Number(t.metros))}
+                                  <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
 
@@ -522,9 +575,14 @@ export default function PlanoViewerPage() {
                           <Check size={14} /> {cfg.sumarBtn}
                         </button>
                       </div>
-                      {pending && (
-                        <button onClick={() => setPending(null)} className="text-[10px] font-black uppercase text-white/40 hover:text-white">
-                          Descartar trazo
+                      {formula === 'largo_x_ancho' && (
+                        <p className="text-[10px] font-black uppercase text-white/40">
+                          {ladoA ? `Lado 1: ${fmt(ladoA.metros)} m · falta el segundo lado` : 'Cada techo = 2 trazos (largo y ancho)'}
+                        </p>
+                      )}
+                      {(pending || ladoA) && (
+                        <button onClick={() => { setPending(null); setLadoA(null) }} className="text-[10px] font-black uppercase text-white/40 hover:text-white">
+                          {ladoA ? 'Cancelar este techo' : 'Descartar trazo'}
                         </button>
                       )}
                     </div>
