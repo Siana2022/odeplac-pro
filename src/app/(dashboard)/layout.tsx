@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import ChatBox from "../../components/chat/ChatBox";
+import OfflineStatus from "../../components/offline/OfflineStatus";
 import { Menu, X } from "lucide-react";
 
 export default function DashboardLayout({
@@ -12,19 +13,28 @@ export default function DashboardLayout({
 }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  useEffect(() => {
+    // Guardar la portada autenticada en el service worker para que el icono
+    // de la tablet abra la app sin cobertura.
+    if (!('serviceWorker' in navigator)) return
+    navigator.serviceWorker.ready
+      .then(reg => reg.active?.postMessage({ type: 'CACHE_START_URL' }))
+      .catch(() => {})
+  }, []);
+
   return (
     <div className="flex min-h-screen bg-[#295693] overflow-x-hidden">
       {/* Botón de Menú para Móvil */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="lg:hidden fixed top-4 left-4 z-[100] p-2 bg-white text-[#295693] rounded-lg shadow-lg"
+        className="tablet:hidden fixed top-4 left-4 z-[100] p-2 bg-white text-[#295693] rounded-lg shadow-lg"
       >
         {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
       {/* Sidebar con lógica de visibilidad móvil */}
       <div className={`
-        fixed inset-y-0 left-0 z-[90] transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0
+        fixed inset-y-0 left-0 z-[90] transform transition-transform duration-300 ease-in-out tablet:relative tablet:translate-x-0
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <Sidebar onClose={() => setIsSidebarOpen(false)} />
@@ -33,14 +43,14 @@ export default function DashboardLayout({
       {/* Overlay para cerrar el menú al tocar fuera en móvil */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-[80] lg:hidden"
+          className="fixed inset-0 bg-black/50 z-[80] tablet:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Contenido Principal */}
-      <main className="flex-1 p-4 lg:p-8 overflow-y-auto w-full">
-        <div className="max-w-7xl mx-auto mt-12 lg:mt-0">
+      <main className="flex-1 p-4 tablet:p-6 lg:p-8 overflow-y-auto w-full">
+        <div className="max-w-7xl mx-auto mt-12 tablet:mt-0">
           {children}
         </div>
       </main>
@@ -50,6 +60,7 @@ export default function DashboardLayout({
         v.1.0-AI-MOBILE
       </div>
 
+      <OfflineStatus />
       <ChatBox />
     </div>
   );

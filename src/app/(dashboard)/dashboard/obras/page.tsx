@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { saveOrQueue } from '@/lib/offline/queue';
 
 const COLUMNAS = [
   { id: 'lead',        title: 'LEADS' },
@@ -36,6 +37,32 @@ const TABS = [
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+
+// Normaliza las partidas de una copia para poder editarlas (medición × precio)
+function normalizarPartidasCopia(partidas: any[] = []): any[] {
+  return (partidas || []).map((p: any, i: number) => {
+    let medicion = Number(p.medicion ?? p.cantidad ?? 0) || 0;
+    let precio = Number(p.precio_unitario) || 0;
+    const total = Number(p.total_euros) || 0;
+
+    // Partidas antiguas con solo "total": reconstruir medición/precio sin perder importe
+    if (!precio && medicion > 0) precio = total / medicion;
+    if (!precio && total > 0) { medicion = medicion || 1; precio = total / medicion; }
+
+    return {
+      ...p,
+      item: p.item ?? i + 1,
+      descripcion: p.descripcion || '',
+      unidad: p.unidad || 'ud',
+      medicion,
+      precio_unitario: precio,
+      total_euros: +(medicion * precio).toFixed(2),
+      // Texto tal cual se escribe (permite teclear "3,5" sin que se coma la coma)
+      _medicion: String(medicion),
+      _precio: String(precio),
+    };
+  });
+}
 
 export default function PipelinePage() {
   const supabase = createClient();
@@ -67,6 +94,8 @@ export default function PipelinePage() {
   const [presupuestoSelId, setPresupuestoSelId]             = useState('');
   const [isLinking, setIsLinking]                           = useState(false);
   const [isDuplicating, setIsDuplicating]                   = useState(false);
+  const [copiaPartidas, setCopiaPartidas]                   = useState<any[]>([]);
+  const [isSavingCopia, setIsSavingCopia]                   = useState(false);
 
   // ── Gastos ────────────────────────────────────────────────────────────────
   const [gastos, setGastos]                   = useState<any[]>([]);
@@ -127,6 +156,7 @@ export default function PipelinePage() {
     setFechaFin(obra.fecha_fin || '');
     setPresupuestoVinculado(null);
     setFacturaPreview(null);
+    setCopiaPartidas(normalizarPartidasCopia(obra.presupuesto_modificado?.partidas || []));
 
     await Promise.all([
       loadSeguimientos(obra.id),
@@ -141,10 +171,11 @@ export default function PipelinePage() {
   };
 
   const loadSeguimientos = async (obraId: string) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('obra_seguimiento').select('*').eq('obra_id', obraId)
       .order('created_at', { ascending: false });
-    setSeguimientos(data || []);
+    // Sin conexión no borrar lo que ya se está mostrando
+    if (!error) setSeguimientos(data || []);
   };
 
   const loadPresupuestosLista = async () => {
@@ -230,17 +261,26 @@ export default function PipelinePage() {
   const guardarSeguimiento = async () => {
     if (!nuevoMensaje.trim()) return;
     setIsSavingNote(true);
+    const row = {
+      id: crypto.randomUUID(),
+      obra_id: selectedObra.id,
+      mensaje: nuevoMensaje,
+      tipo: tipoSeguimiento,
+      es_publico: true,
+      created_at: new Date().toISOString(),
+    };
     try {
-      const { error } = await supabase.from('obra_seguimiento').insert([{
-        obra_id: selectedObra.id, mensaje: nuevoMensaje,
-        tipo: tipoSeguimiento, es_publico: true,
-      }]);
-      if (error) throw error;
+      const { queued, error } = await saveOrQueue(supabase, 'obra_seguimiento', row, 'Nota de bitácora');
+      if (error) { toast.error('Error: ' + error); return; }
+      if (queued) {
+        setSeguimientos(prev => [row, ...prev]);
+        setNuevoMensaje('');
+        toast.success('Guardado sin conexión. Se enviará al recuperar cobertura.');
+        return;
+      }
       toast.success('Nota registrada');
       setNuevoMensaje('');
       loadSeguimientos(selectedObra.id);
-    } catch (e: any) {
-      toast.error('Error: ' + e.message);
     } finally {
       setIsSavingNote(false);
     }
@@ -286,6 +326,7 @@ export default function PipelinePage() {
       if (error) throw error;
       toast.success('Copia creada. Aquí podrás modificarla sin perder el original.');
       setSelectedObra({ ...selectedObra, presupuesto_modificado: copia });
+      setCopiaPartidas(normalizarPartidasCopia(copia.partidas));
     } catch {
       toast.error('Error al duplicar');
     } finally {
@@ -415,18 +456,24 @@ export default function PipelinePage() {
   const agregarMedicion = async () => {
     if (!nuevaMedicion.descripcion.trim()) { toast.error('Introduce una descripción'); return; }
     setIsSavingMedicion(true);
+    const row = {
+      id: crypto.randomUUID(),
+      obra_id: selectedObra.id,
+      descripcion: nuevaMedicion.descripcion,
+      ml: nuevaMedicion.ml,
+      alto: nuevaMedicion.alto,
+      created_at: new Date().toISOString(),
+    };
     try {
-      const { error } = await supabase.from('obra_mediciones').insert([{
-        obra_id: selectedObra.id,
-        descripcion: nuevaMedicion.descripcion,
-        ml: nuevaMedicion.ml,
-        alto: nuevaMedicion.alto,
-      }]);
-      if (error) throw error;
+      const { queued, error } = await saveOrQueue(supabase, 'obra_mediciones', row, 'Medición de obra');
+      if (error) { toast.error('Error: ' + error); return; }
       setNuevaMedicion({ descripcion: '', ml: 0, alto: 0 });
+      if (queued) {
+        setMediciones(prev => [...prev, row]);
+        toast.success('Medición guardada sin conexión. Se enviará al recuperar cobertura.');
+        return;
+      }
       loadMediciones(selectedObra.id);
-    } catch {
-      toast.error('Error al guardar');
     } finally {
       setIsSavingMedicion(false);
     }
@@ -449,18 +496,24 @@ export default function PipelinePage() {
   const agregarHora = async () => {
     if (!nuevaFila.trabajador.trim()) { toast.error('Introduce el nombre del trabajador'); return; }
     setIsSavingHora(true);
+    const row = {
+      id: crypto.randomUUID(),
+      obra_id: selectedObra.id,
+      fecha: nuevaFila.fecha,
+      trabajador: nuevaFila.trabajador,
+      horas: nuevaFila.horas,
+      created_at: new Date().toISOString(),
+    };
     try {
-      const { error } = await supabase.from('obra_horas').insert([{
-        obra_id: selectedObra.id,
-        fecha: nuevaFila.fecha,
-        trabajador: nuevaFila.trabajador,
-        horas: nuevaFila.horas,
-      }]);
-      if (error) throw error;
+      const { queued, error } = await saveOrQueue(supabase, 'obra_horas', row, 'Registro de horas');
+      if (error) { toast.error('Error: ' + error); return; }
       setNuevaFila({ fecha: new Date().toISOString().split('T')[0], trabajador: '', horas: 8 });
+      if (queued) {
+        setHoras(prev => [row, ...prev]);
+        toast.success('Horas guardadas sin conexión. Se enviarán al recuperar cobertura.');
+        return;
+      }
       loadHoras(selectedObra.id);
-    } catch {
-      toast.error('Error al guardar');
     } finally {
       setIsSavingHora(false);
     }
@@ -557,8 +610,148 @@ export default function PipelinePage() {
     </div>
   );
 
+  // ── Copia modificable del presupuesto ─────────────────────────────────────
+  const actualizarPartidaCopia = (
+    index: number,
+    campo: 'descripcion' | 'unidad' | 'medicion' | 'precio_unitario',
+    valor: string
+  ) => {
+    setCopiaPartidas(prev => {
+      const nuevas = [...prev];
+      const p = { ...nuevas[index] };
+      if (campo === 'descripcion' || campo === 'unidad') {
+        p[campo] = valor;
+      } else {
+        const num = parseFloat(valor.replace(',', '.')) || 0;
+        if (campo === 'medicion') {
+          p._medicion = valor;
+          p.medicion = num;
+        } else {
+          p._precio = valor;
+          p.precio_unitario = num;
+        }
+        p.total_euros = +((Number(p.medicion) || 0) * (Number(p.precio_unitario) || 0)).toFixed(2);
+      }
+      nuevas[index] = p;
+      return nuevas;
+    });
+  };
+
+  const agregarPartidaCopia = () => {
+    setCopiaPartidas(prev => [
+      ...prev,
+      { item: prev.length + 1, descripcion: '', unidad: 'ud', medicion: 1, precio_unitario: 0, total_euros: 0, _medicion: '1', _precio: '0' },
+    ]);
+  };
+
+  const eliminarPartidaCopia = (index: number) => {
+    setCopiaPartidas(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const totalCopiaPresupuesto = copiaPartidas.reduce(
+    (a, p) => a + (Number(p.medicion) || 0) * (Number(p.precio_unitario) || 0),
+    0
+  );
+
+  const guardarCopiaPresupuesto = async () => {
+    if (!selectedObra) return;
+    setIsSavingCopia(true);
+    try {
+      const partidasLimpias = copiaPartidas.map(({ _medicion, _precio, ...p }) => ({
+        ...p,
+        medicion: Number(p.medicion) || 0,
+        precio_unitario: Number(p.precio_unitario) || 0,
+        total_euros: +((Number(p.medicion) || 0) * (Number(p.precio_unitario) || 0)).toFixed(2),
+      }));
+      const total = +totalCopiaPresupuesto.toFixed(2);
+      const copia = {
+        ...(selectedObra.presupuesto_modificado || {}),
+        partidas: partidasLimpias,
+        total,
+        actualizado: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('obras').update({
+        presupuesto_modificado: copia,
+        total_presupuesto: total,
+        updated_at: new Date().toISOString(),
+      }).eq('id', selectedObra.id);
+      if (error) throw error;
+      setSelectedObra({ ...selectedObra, presupuesto_modificado: copia, total_presupuesto: total });
+      setObras(prev => prev.map(o => o.id === selectedObra.id
+        ? { ...o, presupuesto_modificado: copia, total_presupuesto: total }
+        : o));
+      toast.success('Copia guardada. El presupuesto original sigue intacto.');
+    } catch (e: any) {
+      toast.error('Error al guardar la copia: ' + (e?.message || ''));
+    } finally {
+      setIsSavingCopia(false);
+    }
+  };
+
+  const descartarCopia = async () => {
+    if (!selectedObra) return;
+    if (!confirm('¿Descartar la copia modificable? El presupuesto original no cambia.')) return;
+    const totalOriginal = Number(presupuestoVinculado?.total_materiales ?? selectedObra.total_presupuesto ?? 0);
+    const { error } = await supabase
+      .from('obras')
+      .update({
+        presupuesto_modificado: null,
+        total_presupuesto: totalOriginal,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', selectedObra.id);
+    if (error) return toast.error('Error al descartar la copia');
+    setSelectedObra({ ...selectedObra, presupuesto_modificado: null, total_presupuesto: totalOriginal });
+    setObras(prev => prev.map(o => o.id === selectedObra.id
+      ? { ...o, presupuesto_modificado: null, total_presupuesto: totalOriginal }
+      : o));
+    setCopiaPartidas([]);
+    toast.success('Copia descartada');
+  };
+
   const TabPresupuesto = () => {
     const partidas: any[] = presupuestoVinculado?.partidas_json || [];
+    const copiaActiva = !!selectedObra?.presupuesto_modificado;
+
+    const tablaOriginal = partidas.length > 0 ? (
+      <div className="space-y-3">
+        <h4 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+          {partidas.length} partidas · presupuesto original
+        </h4>
+        <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-zinc-50 border-b border-zinc-100">
+                <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Descripción</th>
+                <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Ud</th>
+                <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Medición</th>
+                <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {partidas.map((p: any, i: number) => (
+                <tr key={i} className="border-b border-zinc-50 hover:bg-zinc-50/50">
+                  <td className="p-4 font-medium text-zinc-800 max-w-xs">
+                    {p.capitulo && <span className="text-[8px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded mr-2 uppercase">{p.capitulo}</span>}
+                    {p.descripcion}
+                  </td>
+                  <td className="p-4 text-right text-zinc-500 text-xs">{p.unidad}</td>
+                  <td className="p-4 text-right text-zinc-500 text-xs">{p.medicion}</td>
+                  <td className="p-4 text-right font-black text-[#295693]">{fmt(p.total_euros || 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-[#295693]">
+                <td colSpan={3} className="p-4 font-black text-[11px] uppercase tracking-widest text-white">Total presupuesto</td>
+                <td className="p-4 text-right font-black text-white text-lg">{fmt(presupuestoVinculado?.total_materiales || 0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    ) : null;
+
     return (
       <div className="p-8 space-y-8 overflow-y-auto">
         {!selectedObra?.presupuesto_vinculado_id ? (
@@ -589,7 +782,7 @@ export default function PipelinePage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="bg-green-50 border-2 border-green-100 rounded-[2rem] p-6 flex items-center justify-between">
+            <div className="bg-green-50 border-2 border-green-100 rounded-[2rem] p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="bg-green-100 p-3 rounded-2xl"><FileText size={20} className="text-green-600" /></div>
                 <div>
@@ -609,52 +802,137 @@ export default function PipelinePage() {
                 </button>
               )}
             </div>
-            {selectedObra?.presupuesto_modificado && (
-              <div className="bg-amber-50 border-2 border-amber-100 rounded-2xl p-4 flex items-center gap-3">
-                <Copy size={16} className="text-amber-500 shrink-0" />
-                <p className="text-[11px] font-bold text-amber-700">
-                  Tienes una copia modificable activa. El original se conserva intacto.
-                  Copiado el {new Date(selectedObra.presupuesto_modificado.fecha_duplicado).toLocaleDateString('es-ES')}.
-                </p>
-              </div>
-            )}
-            {partidas.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-                  {partidas.length} partidas · presupuesto original
-                </h4>
-                <div className="rounded-[2rem] overflow-hidden border border-zinc-100">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-100">
-                        <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Descripción</th>
-                        <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Ud</th>
-                        <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Medición</th>
-                        <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-zinc-400">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {partidas.map((p: any, i: number) => (
-                        <tr key={i} className="border-b border-zinc-50 hover:bg-zinc-50/50">
-                          <td className="p-4 font-medium text-zinc-800 max-w-xs">
-                            {p.capitulo && <span className="text-[8px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded mr-2 uppercase">{p.capitulo}</span>}
-                            {p.descripcion}
-                          </td>
-                          <td className="p-4 text-right text-zinc-500 text-xs">{p.unidad}</td>
-                          <td className="p-4 text-right text-zinc-500 text-xs">{p.medicion}</td>
-                          <td className="p-4 text-right font-black text-[#295693]">{fmt(p.total_euros || 0)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-[#295693]">
-                        <td colSpan={3} className="p-4 font-black text-[11px] uppercase tracking-widest text-white">Total presupuesto</td>
-                        <td className="p-4 text-right font-black text-white text-lg">{fmt(presupuestoVinculado?.total_materiales || 0)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+
+            {copiaActiva ? (
+              <>
+                <div className="bg-amber-50 border-2 border-amber-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Copy size={16} className="text-amber-500 shrink-0" />
+                    <p className="text-[11px] font-bold text-amber-700">
+                      Copia modificable activa. El original se conserva intacto.
+                      {selectedObra?.presupuesto_modificado?.fecha_duplicado
+                        ? ` Copiada el ${new Date(selectedObra.presupuesto_modificado.fecha_duplicado).toLocaleDateString('es-ES')}.`
+                        : ''}
+                    </p>
+                  </div>
+                  <button onClick={descartarCopia}
+                    className="text-[9px] font-black uppercase tracking-widest text-amber-700/70 hover:text-red-600 transition-all shrink-0"
+                  >
+                    Descartar copia
+                  </button>
                 </div>
-              </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="font-black text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                      Editando copia · {copiaPartidas.length} partidas
+                    </h4>
+                    <button onClick={agregarPartidaCopia}
+                      className="flex items-center gap-2 bg-white border-2 border-zinc-200 text-zinc-700 px-4 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:border-amber-400 transition-all"
+                    >
+                      <PlusCircle size={14} /> Añadir partida
+                    </button>
+                  </div>
+
+                  <div className="rounded-[2rem] border border-amber-100 overflow-x-auto bg-white">
+                    <table className="w-full text-sm min-w-[760px]">
+                      <thead>
+                        <tr className="bg-amber-50/60 border-b border-amber-100">
+                          <th className="text-left p-4 text-[9px] font-black uppercase tracking-widest text-amber-700/70">Descripción</th>
+                          <th className="text-center p-4 text-[9px] font-black uppercase tracking-widest text-amber-700/70">Ud</th>
+                          <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-amber-700/70">Medición</th>
+                          <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-amber-700/70">Precio ud.</th>
+                          <th className="text-right p-4 text-[9px] font-black uppercase tracking-widest text-amber-700/70">Total</th>
+                          <th className="p-4" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {copiaPartidas.map((p: any, i: number) => (
+                          <tr key={i} className="border-b border-zinc-100">
+                            <td className="p-2">
+                              <input
+                                value={p.descripcion}
+                                onChange={e => actualizarPartidaCopia(i, 'descripcion', e.target.value)}
+                                placeholder="Descripción de la partida"
+                                className="w-full min-w-[220px] bg-white border-2 border-zinc-100 rounded-xl p-2.5 font-medium text-zinc-800 outline-none focus:border-amber-400"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                value={p.unidad}
+                                onChange={e => actualizarPartidaCopia(i, 'unidad', e.target.value)}
+                                className="w-16 bg-white border-2 border-zinc-100 rounded-xl p-2.5 font-medium text-zinc-800 text-center outline-none focus:border-amber-400"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="text" inputMode="decimal"
+                                value={p._medicion ?? ''}
+                                onChange={e => actualizarPartidaCopia(i, 'medicion', e.target.value)}
+                                className="w-24 bg-white border-2 border-zinc-100 rounded-xl p-2.5 font-medium text-zinc-800 text-right outline-none focus:border-amber-400"
+                              />
+                            </td>
+                            <td className="p-2">
+                              <input
+                                type="text" inputMode="decimal"
+                                value={p._precio ?? ''}
+                                onChange={e => actualizarPartidaCopia(i, 'precio_unitario', e.target.value)}
+                                className="w-28 bg-white border-2 border-zinc-100 rounded-xl p-2.5 font-medium text-zinc-800 text-right outline-none focus:border-amber-400"
+                              />
+                            </td>
+                            <td className="p-3 text-right font-black text-[#295693] whitespace-nowrap">
+                              {fmt((Number(p.medicion) || 0) * (Number(p.precio_unitario) || 0))}
+                            </td>
+                            <td className="p-2 text-center">
+                              <button onClick={() => eliminarPartidaCopia(i)}
+                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                title="Eliminar partida"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {copiaPartidas.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="p-8 text-center text-zinc-400 text-[10px] font-black uppercase tracking-widest">
+                              Sin partidas. Añade una para empezar.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-[#295693]">
+                          <td colSpan={4} className="p-4 font-black text-[11px] uppercase tracking-widest text-white">Total copia</td>
+                          <td className="p-4 text-right font-black text-white text-lg whitespace-nowrap">{fmt(totalCopiaPresupuesto)}</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                      Se guarda en la copia de esta obra. El presupuesto original no se modifica.
+                    </p>
+                    <button onClick={guardarCopiaPresupuesto} disabled={isSavingCopia || copiaPartidas.length === 0}
+                      className="flex items-center justify-center gap-2 bg-[#295693] text-white px-8 py-4 rounded-[1.5rem] font-black text-xs uppercase tracking-widest disabled:opacity-50"
+                    >
+                      {isSavingCopia ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                      Guardar cambios
+                    </button>
+                  </div>
+                </div>
+
+                <details className="bg-zinc-50 border-2 border-zinc-100 rounded-2xl p-5">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                    Ver presupuesto original (solo lectura)
+                  </summary>
+                  <div className="pt-5">{tablaOriginal}</div>
+                </details>
+              </>
+            ) : (
+              tablaOriginal
             )}
           </div>
         )}
@@ -1227,9 +1505,9 @@ export default function PipelinePage() {
       </div>
 
       {/* PIPELINE */}
-      <div className="flex flex-row overflow-x-auto lg:grid lg:grid-cols-4 gap-8 min-h-[75vh] pb-20 snap-x snap-mandatory lg:overflow-x-visible">
+      <div className="flex flex-row overflow-x-auto tablet:grid tablet:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-8 min-h-[75vh] pb-20 snap-x snap-mandatory tablet:overflow-x-visible">
         {COLUMNAS.map(col => (
-          <div key={col.id} className="flex flex-col gap-6 min-w-[85vw] md:min-w-[45vw] lg:min-w-0 snap-center">
+          <div key={col.id} className="flex flex-col gap-6 min-w-[85vw] md:min-w-[45vw] tablet:min-w-0 snap-center">
             <div className="bg-white/5 backdrop-blur-xl p-5 rounded-[2.5rem] flex justify-between items-center border border-white/10">
               <span className="text-[11px] font-black text-blue-200 uppercase tracking-[0.2em] italic">{col.title}</span>
               <span className="bg-blue-500 text-white text-[10px] px-4 py-1.5 rounded-full font-black">
@@ -1242,7 +1520,7 @@ export default function PipelinePage() {
                   className="bg-white rounded-[3rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-zinc-100 group hover:ring-8 hover:ring-blue-500/10 transition-all relative"
                 >
                   <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(obra.id); }}
-                    className="absolute top-4 right-4 p-2 text-zinc-200 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                    className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
                   ><Trash2 size={16} /></button>
                   <div onClick={() => abrirObra(obra)} className="cursor-pointer">
                     <h3 className="font-black text-zinc-900 leading-[1.1] text-xl mb-5 group-hover:text-blue-600 transition-colors uppercase italic break-words pr-8">
@@ -1405,12 +1683,12 @@ export default function PipelinePage() {
 
             {/* Tab content */}
             <div className="flex-1 overflow-y-auto bg-zinc-50 flex flex-col">
-              {activeTab === 'bitacora'    && <TabBitacora />}
-              {activeTab === 'presupuesto' && <TabPresupuesto />}
-              {activeTab === 'gastos'      && <TabGastos />}
-              {activeTab === 'mediciones'  && <TabMediciones />}
-              {activeTab === 'horas'       && <TabHoras />}
-              {activeTab === 'analisis'    && <TabAnalisis />}
+              {activeTab === 'bitacora'    && TabBitacora()}
+              {activeTab === 'presupuesto' && TabPresupuesto()}
+              {activeTab === 'gastos'      && TabGastos()}
+              {activeTab === 'mediciones'  && TabMediciones()}
+              {activeTab === 'horas'       && TabHoras()}
+              {activeTab === 'analisis'    && TabAnalisis()}
             </div>
           </div>
         </div>

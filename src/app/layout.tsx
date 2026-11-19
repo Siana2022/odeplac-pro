@@ -12,8 +12,13 @@ export const viewport: Viewport = {
   themeColor: "#1e3d6b",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // La tablet necesita poder ampliar (planos, letra pequeña). En Android el
+  // zoom automático al enfocar campos se evita con font-size >= 16px.
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
+  // El teclado en pantalla reduce el viewport en vez de taparlo todo
+  interactiveWidget: "resizes-content",
 }
 
 export const metadata: Metadata = {
@@ -38,7 +43,6 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <script dangerouslySetInnerHTML={{
           __html: `

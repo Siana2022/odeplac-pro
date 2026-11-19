@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@theme {
+  /*
+   * Tablet de 11" en horizontal: 1920x1200 con densidad 2 ≈ 960x600 px CSS,
+   * justo por debajo del breakpoint lg (1024px). Con este breakpoint la app
+   * usa el layout de escritorio (sidebar fijo y pipeline en columnas) también
+   * en la tablet.
+   */
+  --breakpoint-tablet: 56rem; /* 896px */
+}
+
 :root {
   --background: #295693;
   --foreground: #ffffff;
@@ -10,4 +20,56 @@ body {
   color: var(--foreground);
   margin: 0;
   padding: 0;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Ajustes táctiles (tablet en obra):
+ * - objetivos de 44px mínimos
+ * - 16px en campos para que Chrome Android no haga zoom al enfocar
+ * - sin retardo de doble toque
+ */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  select,
+  input,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  button,
+  [role="button"],
+  select,
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea {
+    min-height: 44px;
+  }
+
+  /* Botones que solo llevan un icono: cuadrado táctil */
+  button:has(> svg:only-child) {
+    min-width: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Barra de scroll discreta en el visor de planos */
+@media (pointer: coarse) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+  }
 }

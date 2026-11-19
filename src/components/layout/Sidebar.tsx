@@ -35,10 +35,10 @@ export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-[#1e3d6b] border-r border-white/10 flex flex-col h-screen shrink-0 relative">
+    <aside className="w-64 tablet:w-56 lg:w-64 bg-[#1e3d6b] border-r border-white/10 flex flex-col h-[100dvh] shrink-0 relative">
       <button 
         onClick={onClose}
-        className="lg:hidden absolute top-4 right-4 text-white/50 hover:text-white"
+        className="tablet:hidden absolute top-4 right-4 text-white/50 hover:text-white"
       >
         <X size={20} />
       </button>

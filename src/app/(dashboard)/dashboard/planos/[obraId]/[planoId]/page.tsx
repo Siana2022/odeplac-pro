@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { renderPdfToImageUrl } from '@/lib/utils/pdfRender'
+import { enqueueOperation, isNetworkError } from '@/lib/offline/queue'
 
 type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml'
 interface Tramo {
@@ -33,6 +34,30 @@ const TIPO_SISTEMA_A_FORMULA: Record<string, Formula> = {
 
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const parseNum = (s: string) => parseFloat(String(s).replace(',', '.'))
+
+// Última URL firmada de cada plano: permite reabrir el plano sin conexión
+// (el service worker ya tiene el archivo en caché; la firma caducada da igual).
+const SIGNED_URLS_KEY = 'odeplac:signed-urls:v1'
+
+function saveSignedUrl(planoId: string, url: string) {
+  try {
+    const raw = localStorage.getItem(SIGNED_URLS_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    map[planoId] = { url, at: Date.now() }
+    localStorage.setItem(SIGNED_URLS_KEY, JSON.stringify(map))
+  } catch {}
+}
+
+function readSignedUrl(planoId: string): string | null {
+  try {
+    const raw = localStorage.getItem(SIGNED_URLS_KEY)
+    if (!raw) return null
+    const map = JSON.parse(raw)
+    return map?.[planoId]?.url ?? null
+  } catch {
+    return null
+  }
+}
 const sumML = (m: Medicion) => m.plano_tramos.reduce((a, t) => a + Number(t.metros || 0), 0)
 // Techo nuevo: largo × ancho propios de cada techo. Techos antiguos (sin metros_b): largo × ancho de la medición.
 const areaTecho = (m: Medicion, t: Tramo) => Number(t.metros || 0) * Number(t.metros_b != null ? t.metros_b : m.alto || 0)
@@ -134,16 +159,30 @@ export default function PlanoViewerPage() {
       await loadMediciones()
       setLoading(false)
 
+      let signedUrl = ''
       try {
         const { data: signed, error: sErr } = await supabase.storage.from('planos').createSignedUrl(p.archivo_path, 3600)
         if (sErr || !signed) throw new Error(sErr?.message || 'No se pudo acceder al archivo')
+        signedUrl = signed.signedUrl
+        saveSignedUrl(planoId, signedUrl)
+      } catch {
+        // Sin conexión: reutilizamos la última URL firmada, que el service
+        // worker ya tiene cacheada junto al archivo del plano.
+        signedUrl = readSignedUrl(planoId) || ''
+      }
 
+      if (!signedUrl) {
+        if (!cancelled) setImgError('Sin conexión y este plano aún no se ha abierto en la tablet')
+        return
+      }
+
+      try {
         if (p.mime_type === 'application/pdf') {
-          const r = await renderPdfToImageUrl(signed.signedUrl)
+          const r = await renderPdfToImageUrl(signedUrl)
           objectUrl = r.imageUrl
           if (!cancelled) setImgUrl(r.imageUrl)
         } else if (!cancelled) {
-          setImgUrl(signed.signedUrl)
+          setImgUrl(signedUrl)
         }
       } catch (e: any) {
         if (!cancelled) setImgError(e.message || 'No se pudo cargar el plano')
@@ -254,9 +293,23 @@ export default function PlanoViewerPage() {
       row.x4 = pending.b.x; row.y4 = pending.b.y
     }
     const { data, error } = await supabase.from('plano_tramos').insert([row]).select('*').single()
-    if (error || !data) return toast.error('Error al guardar: ' + (error?.message || ''))
 
-    setMediciones(prev => prev.map(m => (m.id === active.id ? { ...m, plano_tramos: [...m.plano_tramos, data as Tramo] } : m)))
+    let tramo = data as Tramo | null
+    if (error || !data) {
+      if (!isNetworkError(error)) {
+        return toast.error('Error al guardar: ' + (error?.message || ''))
+      }
+      // Sin cobertura: guardar en la cola local con id propio (idempotente)
+      tramo = {
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        ...row,
+      } as unknown as Tramo
+      enqueueOperation('plano_tramos', tramo as unknown as Record<string, unknown>, 'Tramo de plano')
+      toast.success('Tramo guardado sin conexión. Se enviará al recuperar cobertura.')
+    }
+
+    setMediciones(prev => prev.map(m => (m.id === active.id ? { ...m, plano_tramos: [...m.plano_tramos, tramo!] } : m)))
     setPending(null)
     setLadoA(null)
     setMetrosInput('')
