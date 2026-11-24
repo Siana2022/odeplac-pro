@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, Search, Ruler, ChevronRight, Building2, Settings2, Plus, Trash2, X, Layers, Square, Minus } from 'lucide-react'
+import { Loader2, Search, Ruler, ChevronRight, Building2, Settings2, Plus, Trash2, X, Layers, Square, Minus, Box } from 'lucide-react'
 import { toast } from 'sonner'
 
 const ESTADOS: Record<string, string> = {
@@ -17,6 +17,7 @@ const FORMULAS = [
   { id: 'ml_x_alto',      label: 'ML × alto = m²',     desc: 'Para trasdosados y tabiques', Icon: Layers },
   { id: 'largo_x_ancho',  label: 'Largo × Ancho = m²', desc: 'Para falsos techos',           Icon: Square },
   { id: 'suma_ml',         label: 'Suma de ML',          desc: 'Para cortineros y lineales',  Icon: Minus  },
+  { id: 'alto_x_ancho_x_profundo', label: 'Alto × Ancho × Profundo = m³', desc: 'Para hornacinas y oscuros', Icon: Box },
 ]
 
 export default function MedicionPlanosPage() {

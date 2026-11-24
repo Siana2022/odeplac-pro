@@ -11,12 +11,12 @@ import { toast } from 'sonner'
 import { renderPdfToImageUrl } from '@/lib/utils/pdfRender'
 import { enqueueOperation, isNetworkError } from '@/lib/offline/queue'
 
-type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml'
+type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml' | 'alto_x_ancho_x_profundo'
 interface Tramo {
   id: string; metros: number; x1: number | null; y1: number | null; x2: number | null; y2: number | null
   metros_b?: number | null; x3?: number | null; y3?: number | null; x4?: number | null; y4?: number | null
 }
-interface Medicion { id: string; nombre: string; color: string; alto: number; plano_tramos: Tramo[] }
+interface Medicion { id: string; nombre: string; color: string; alto: number; ancho?: number | null; profundo?: number | null; plano_tramos: Tramo[] }
 interface Pt { x: number; y: number }
 
 const COLORES = [
@@ -30,6 +30,7 @@ const TIPO_SISTEMA_A_FORMULA: Record<string, Formula> = {
   trasdosados: 'ml_x_alto',
   techos: 'largo_x_ancho',
   cortineros: 'suma_ml',
+  hornacinas: 'alto_x_ancho_x_profundo',
 }
 
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -62,10 +63,13 @@ const sumML = (m: Medicion) => m.plano_tramos.reduce((a, t) => a + Number(t.metr
 // Techo nuevo: largo × ancho propios de cada techo. Techos antiguos (sin metros_b): largo × ancho de la medición.
 const areaTecho = (m: Medicion, t: Tramo) => Number(t.metros || 0) * Number(t.metros_b != null ? t.metros_b : m.alto || 0)
 const sumM2 = (m: Medicion, formula: Formula) => {
-  if (formula === 'suma_ml') return 0
+  if (formula === 'suma_ml' || formula === 'alto_x_ancho_x_profundo') return 0
   if (formula === 'largo_x_ancho') return m.plano_tramos.reduce((a, t) => a + areaTecho(m, t), 0)
   return sumML(m) * Number(m.alto || 0)
 }
+
+// Hornacinas / oscuros: Alto × Ancho × Profundo = m³
+const m3Of = (m: Medicion) => Number(m.alto || 0) * Number(m.ancho || 0) * Number(m.profundo || 0)
 
 const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: string; tramoLabel: string; tramoPlaceholder: string; sumarBtn: string; showAlto: boolean; showM2: boolean }> = {
   ml_x_alto: {
@@ -98,6 +102,16 @@ const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: 
     showAlto: false,
     showM2: false,
   },
+  alto_x_ancho_x_profundo: {
+    boton: 'Nueva hornacina',
+    altoLabel: 'Alto (m)',
+    altoPlaceholder: 'Ej: 0,80',
+    tramoLabel: '',
+    tramoPlaceholder: '',
+    sumarBtn: '',
+    showAlto: true,
+    showM2: false,
+  },
 }
 
 export default function PlanoViewerPage() {
@@ -124,7 +138,7 @@ export default function PlanoViewerPage() {
   const svgRef = useRef<SVGSVGElement>(null)
 
   const [modal, setModal] = useState<{ id: string | null } | null>(null)
-  const [form, setForm] = useState({ nombre: '', alto: '', color: COLORES[0].v })
+  const [form, setForm] = useState({ nombre: '', alto: '', ancho: '', profundo: '', color: COLORES[0].v })
   const [saving, setSaving] = useState(false)
 
   const formula: Formula = ((plano?.plano_tipos_sistema?.formula) || TIPO_SISTEMA_A_FORMULA[plano?.tipo_sistema || ''] || 'ml_x_alto') as Formula
@@ -212,13 +226,20 @@ export default function PlanoViewerPage() {
   const totales = useMemo(() => {
     const ml = mediciones.reduce((a, m) => a + sumML(m), 0)
     const m2 = mediciones.reduce((a, m) => a + sumM2(m, formula), 0)
-    return { ml, m2 }
+    const m3 = mediciones.reduce((a, m) => a + m3Of(m), 0)
+    return { ml, m2, m3 }
   }, [mediciones, formula])
 
   /* ---------- Mediciones (CRUD) ---------- */
   const abrirModal = (m?: Medicion) => {
-    if (m) setForm({ nombre: m.nombre, alto: String(m.alto).replace('.', ','), color: m.color })
-    else setForm({ nombre: '', alto: '', color: COLORES[mediciones.length % COLORES.length].v })
+    if (m) setForm({
+      nombre: m.nombre,
+      alto: String(m.alto ?? '').replace('.', ','),
+      ancho: String(m.ancho ?? '').replace('.', ','),
+      profundo: String(m.profundo ?? '').replace('.', ','),
+      color: m.color,
+    })
+    else setForm({ nombre: '', alto: '', ancho: '', profundo: '', color: COLORES[mediciones.length % COLORES.length].v })
     setModal({ id: m?.id ?? null })
   }
 
@@ -226,17 +247,32 @@ export default function PlanoViewerPage() {
     e.preventDefault()
     if (!form.nombre.trim()) return toast.error('Escribe el nombre del sistema')
 
+    const esHornacina = formula === 'alto_x_ancho_x_profundo'
+
     let alto = 0
     if (cfg.showAlto) {
       alto = parseNum(form.alto)
       if (!(alto > 0)) return toast.error(`Indica el ${cfg.altoLabel.toLowerCase()} (ej: ${cfg.altoPlaceholder.replace('Ej: ', '')})`)
     }
 
+    let ancho = 0
+    let profundo = 0
+    if (esHornacina) {
+      ancho = parseNum(form.ancho)
+      profundo = parseNum(form.profundo)
+      if (!(ancho > 0)) return toast.error('Indica el ancho de la hornacina (ej: 1,20)')
+      if (!(profundo > 0)) return toast.error('Indica la profundidad de la hornacina (ej: 0,40)')
+    }
+
     setSaving(true)
     // En techos no se pide ancho: al editar se conserva el ancho antiguo para techos previos.
-    const payload: { nombre: string; color: string; alto?: number } = { nombre: form.nombre.trim(), color: form.color }
+    const payload: { nombre: string; color: string; alto?: number; ancho?: number; profundo?: number } = {
+      nombre: form.nombre.trim(),
+      color: form.color,
+    }
     if (cfg.showAlto) payload.alto = alto
     else if (!modal?.id) payload.alto = 0
+    if (esHornacina) { payload.ancho = ancho; payload.profundo = profundo }
     if (modal?.id) {
       const { error } = await supabase.from('plano_mediciones').update(payload).eq('id', modal.id)
       setSaving(false)
@@ -249,7 +285,7 @@ export default function PlanoViewerPage() {
       if (error || !data) return toast.error('Error: ' + (error?.message || ''))
       setMediciones(prev => [...prev, { ...(data as any), plano_tramos: [] }])
       setActiveId(data.id)
-      setDrawMode(true)
+      if (!esHornacina) setDrawMode(true)
     }
     setModal(null)
   }
@@ -264,6 +300,7 @@ export default function PlanoViewerPage() {
 
   /* ---------- Tramos ---------- */
   const guardarTramo = async () => {
+    if (formula === 'alto_x_ancho_x_profundo') return
     if (!active) return toast.error('Primero selecciona o crea una medición')
     const metros = parseNum(metrosInput)
     if (!(metros > 0)) return toast.error(`Introduce los metros (ej: 3,1)`)
@@ -331,6 +368,7 @@ export default function PlanoViewerPage() {
   }
 
   const onSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (formula === 'alto_x_ancho_x_profundo') return
     if (!drawMode) return
     if (!active) return toast.error('Primero crea o selecciona una medición')
     if (pending) return
@@ -373,6 +411,14 @@ export default function PlanoViewerPage() {
   }
 
   const formulaMedicion = (m: Medicion) => {
+    if (formula === 'alto_x_ancho_x_profundo') {
+      return (
+        <span className="text-[11px] font-bold text-white/60 break-words">
+          {fmt(Number(m.alto))} × {fmt(Number(m.ancho))} × {fmt(Number(m.profundo))} ={' '}
+          <span className="font-black" style={{ color: m.color }}>{fmt(m3Of(m))} m³</span>
+        </span>
+      )
+    }
     const ml = sumML(m)
     if (formula === 'suma_ml') {
       const tramos = m.plano_tramos.map(t => fmt(Number(t.metros))).join(' + ')
@@ -406,6 +452,7 @@ export default function PlanoViewerPage() {
   }
 
   const labelMedicion = (m: Medicion) => {
+    if (formula === 'alto_x_ancho_x_profundo') return `${fmt(m3Of(m))} m³`
     const ml = sumML(m)
     const m2 = sumM2(m, formula)
     if (formula === 'suma_ml') return `${fmt(ml)} ml`
@@ -416,10 +463,17 @@ export default function PlanoViewerPage() {
   const tipoNombrePanel = plano?.plano_tipos_sistema?.nombre
     || (plano?.tipo_sistema === 'trasdosados' ? 'Mediciones'
       : plano?.tipo_sistema === 'techos' ? 'Techos'
+      : plano?.tipo_sistema === 'hornacinas' ? 'Hornacinas'
       : 'Cortineros')
 
-  const medicionLabelModal = formula === 'ml_x_alto' ? 'Sistema / nombre' : formula === 'largo_x_ancho' ? 'Nombre del techo' : 'Nombre del cortinero'
-  const medicionPlaceholderModal = formula === 'ml_x_alto' ? 'Ej: Tabique 70/600 doble placa' : formula === 'largo_x_ancho' ? 'Ej: Techo habitación principal' : 'Ej: Cortinero salón'
+  const medicionLabelModal = formula === 'ml_x_alto' ? 'Sistema / nombre'
+    : formula === 'largo_x_ancho' ? 'Nombre del techo'
+    : formula === 'alto_x_ancho_x_profundo' ? 'Nombre de la hornacina'
+    : 'Nombre del cortinero'
+  const medicionPlaceholderModal = formula === 'ml_x_alto' ? 'Ej: Tabique 70/600 doble placa'
+    : formula === 'largo_x_ancho' ? 'Ej: Techo habitación principal'
+    : formula === 'alto_x_ancho_x_profundo' ? 'Ej: Hornacina salón'
+    : 'Ej: Cortinero salón'
 
   return (
     <div className="w-full p-4 lg:p-6 text-white font-sans flex flex-col gap-4 lg:h-screen">
@@ -438,17 +492,26 @@ export default function PlanoViewerPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {formula !== 'largo_x_ancho' && (
-            <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-2 text-right">
-              <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
-              <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
-            </div>
-          )}
-          {formula !== 'suma_ml' && (
+          {formula === 'alto_x_ancho_x_profundo' ? (
             <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
-              <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
-              <p className="font-black italic text-lg leading-tight">{fmt(totales.m2)}</p>
+              <p className="text-[9px] font-black uppercase text-emerald-400">Total m³</p>
+              <p className="font-black italic text-lg leading-tight">{fmt(totales.m3)}</p>
             </div>
+          ) : (
+            <>
+              {formula !== 'largo_x_ancho' && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-2 text-right">
+                  <p className="text-[9px] font-black uppercase text-white/40">ML plano</p>
+                  <p className="font-black italic text-lg leading-tight">{fmt(totales.ml)}</p>
+                </div>
+              )}
+              {formula !== 'suma_ml' && (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-2 text-right">
+                  <p className="text-[9px] font-black uppercase text-emerald-400">Total m²</p>
+                  <p className="font-black italic text-lg leading-tight">{fmt(totales.m2)}</p>
+                </div>
+              )}
+            </>
           )}
           <button
             onClick={() => abrirModal()}
@@ -463,21 +526,29 @@ export default function PlanoViewerPage() {
         {/* VISOR */}
         <div className="relative bg-white/5 border border-white/10 rounded-3xl overflow-hidden flex flex-col min-h-[60vh]">
           <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-black/20">
-            <button
-              onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null); setLadoA(null) }}
-              disabled={!active}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all disabled:opacity-30 ${drawMode ? 'bg-emerald-400 text-[#0f172a]' : 'bg-white/10 hover:bg-white/20'}`}
-            >
-              <PenLine size={14} /> {drawMode ? 'Dibujando...' : formula === 'largo_x_ancho' ? 'Añadir techo' : 'Dibujar tramo'}
-            </button>
-            <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
-              {!drawMode ? 'Activa el modo dibujo'
-                : formula === 'largo_x_ancho'
-                  ? (pending ? `Escribe la medida del ${ladoA ? 'segundo' : 'primer'} lado`
-                    : firstPoint ? `Clic en el punto final del ${ladoA ? 'segundo' : 'primer'} lado`
-                    : `Clic en el punto inicial del ${ladoA ? 'segundo' : 'primer'} lado`)
-                  : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
-            </span>
+            {formula === 'alto_x_ancho_x_profundo' ? (
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/40 px-3">
+                Alto × Ancho × Profundo = m³
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null); setLadoA(null) }}
+                  disabled={!active}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all disabled:opacity-30 ${drawMode ? 'bg-emerald-400 text-[#0f172a]' : 'bg-white/10 hover:bg-white/20'}`}
+                >
+                  <PenLine size={14} /> {drawMode ? 'Dibujando...' : formula === 'largo_x_ancho' ? 'Añadir techo' : 'Dibujar tramo'}
+                </button>
+                <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
+                  {!drawMode ? 'Activa el modo dibujo'
+                    : formula === 'largo_x_ancho'
+                      ? (pending ? `Escribe la medida del ${ladoA ? 'segundo' : 'primer'} lado`
+                        : firstPoint ? `Clic en el punto final del ${ladoA ? 'segundo' : 'primer'} lado`
+                        : `Clic en el punto inicial del ${ladoA ? 'segundo' : 'primer'} lado`)
+                      : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
+                </span>
+              </>
+            )}
             <div className="ml-auto flex items-center gap-1">
               <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))} className="p-2 rounded-lg bg-white/10 hover:bg-white/20"><Minus size={14} /></button>
               <span className="text-[11px] font-black w-12 text-center">{Math.round(zoom * 100)}%</span>
@@ -565,35 +636,50 @@ export default function PlanoViewerPage() {
                     <span className="h-4 w-4 rounded-full mt-1 shrink-0" style={{ background: m.color }} />
                     <div className="flex-1 min-w-0">
                       <p className="font-black uppercase text-sm leading-tight break-words">{m.nombre}</p>
-                      {cfg.showAlto && (
+                      {formula === 'alto_x_ancho_x_profundo' ? (
+                        <p className="text-[10px] font-bold uppercase text-white/40">
+                          {fmt(Number(m.alto))} × {fmt(Number(m.ancho))} × {fmt(Number(m.profundo))} m
+                        </p>
+                      ) : cfg.showAlto ? (
                         <p className="text-[10px] font-bold uppercase text-white/40">
                           Altura: {fmt(Number(m.alto))} m
                         </p>
-                      )}
+                      ) : null}
                     </div>
                     <button onClick={e => { e.stopPropagation(); abrirModal(m) }} className="p-1.5 text-white/30 hover:text-white"><Pencil size={14} /></button>
                     <button onClick={e => { e.stopPropagation(); eliminarMedicion(m) }} className="p-1.5 text-red-400/50 hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
 
-                  <div className={`grid gap-2 mt-3 ${cfg.showM2 && formula !== 'largo_x_ancho' ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                    {formula !== 'largo_x_ancho' && (
-                      <div className="bg-black/30 rounded-xl p-2 text-center">
-                        <p className="text-[9px] font-black uppercase text-white/40">
-                          {formula === 'suma_ml' ? 'Total ML' : 'ML'}
-                        </p>
-                        <p className="font-black italic">{fmt(ml)}</p>
-                      </div>
-                    )}
-                    {cfg.showM2 && (
-                      <div className="rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
-                        <p className="text-[9px] font-black uppercase text-white/50">Total m²</p>
-                        <p className="font-black italic">{fmt(m2)}</p>
-                      </div>
-                    )}
-                  </div>
+                  {formula === 'alto_x_ancho_x_profundo' ? (
+                    <div className="mt-3 rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
+                      <p className="text-[9px] font-black uppercase text-white/50">Total m³</p>
+                      <p className="font-black italic">{fmt(m3Of(m))}</p>
+                    </div>
+                  ) : (
+                    <div className={`grid gap-2 mt-3 ${cfg.showM2 && formula !== 'largo_x_ancho' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {formula !== 'largo_x_ancho' && (
+                        <div className="bg-black/30 rounded-xl p-2 text-center">
+                          <p className="text-[9px] font-black uppercase text-white/40">
+                            {formula === 'suma_ml' ? 'Total ML' : 'ML'}
+                          </p>
+                          <p className="font-black italic">{fmt(ml)}</p>
+                        </div>
+                      )}
+                      {cfg.showM2 && (
+                        <div className="rounded-xl p-2 text-center" style={{ background: m.color + '22' }}>
+                          <p className="text-[9px] font-black uppercase text-white/50">Total m²</p>
+                          <p className="font-black italic">{fmt(m2)}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {isActive && (
                     <div className="mt-3 space-y-3" onClick={e => e.stopPropagation()}>
+                      {formula === 'alto_x_ancho_x_profundo' ? (
+                        <div className="text-[11px]">{formulaMedicion(m)}</div>
+                      ) : (
+                      <>
                       {m.plano_tramos.length > 0 && (
                         <>
                           <div className="text-[11px]">{formulaMedicion(m)}</div>
@@ -638,6 +724,8 @@ export default function PlanoViewerPage() {
                           {ladoA ? 'Cancelar este techo' : 'Descartar trazo'}
                         </button>
                       )}
+                      </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -661,7 +749,6 @@ export default function PlanoViewerPage() {
             <div>
               <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">{medicionLabelModal}</label>
               <input
-                autoFocus
                 value={form.nombre}
                 onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
                 placeholder={medicionPlaceholderModal}
@@ -673,6 +760,7 @@ export default function PlanoViewerPage() {
               <div>
                 <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">{cfg.altoLabel}</label>
                 <input
+                  autoFocus
                   inputMode="decimal"
                   value={form.alto}
                   onChange={e => setForm(f => ({ ...f, alto: e.target.value }))}
@@ -680,6 +768,31 @@ export default function PlanoViewerPage() {
                   className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
                 />
               </div>
+            )}
+
+            {formula === 'alto_x_ancho_x_profundo' && (
+              <>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Ancho (m)</label>
+                  <input
+                    inputMode="decimal"
+                    value={form.ancho}
+                    onChange={e => setForm(f => ({ ...f, ancho: e.target.value }))}
+                    placeholder="Ej: 1,20"
+                    className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Profundo (m)</label>
+                  <input
+                    inputMode="decimal"
+                    value={form.profundo}
+                    onChange={e => setForm(f => ({ ...f, profundo: e.target.value }))}
+                    placeholder="Ej: 0,40"
+                    className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </>
             )}
 
             <div>
@@ -705,7 +818,7 @@ export default function PlanoViewerPage() {
               disabled={saving}
               className="w-full bg-emerald-400 text-[#0f172a] py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-emerald-300 disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {saving ? <Loader2 className="animate-spin" size={16} /> : modal.id ? 'Guardar cambios' : 'Crear y empezar a medir'}
+              {saving ? <Loader2 className="animate-spin" size={16} /> : modal.id ? 'Guardar cambios' : formula === 'alto_x_ancho_x_profundo' ? 'Crear hornacina' : 'Crear y empezar a medir'}
             </button>
           </form>
         </div>

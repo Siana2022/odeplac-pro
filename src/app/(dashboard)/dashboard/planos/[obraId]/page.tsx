@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, FileDown, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight, Pencil, Check, Layers, Square, Minus } from 'lucide-react'
+import { ArrowLeft, Box, FileDown, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight, Pencil, Check, Layers, Square, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileName } from '@/lib/utils/pdfRender'
 import { exportarPlanosPdf } from '@/lib/planos/pdfExport'
@@ -15,12 +15,14 @@ const FORMULA_ICONS: Record<string, typeof Layers> = {
   ml_x_alto: Layers,
   largo_x_ancho: Square,
   suma_ml: Minus,
+  alto_x_ancho_x_profundo: Box,
 }
 
 const FORMULA_LABELS: Record<string, string> = {
   ml_x_alto: 'ML × alto = m²',
   largo_x_ancho: 'Largo × Ancho = m²',
   suma_ml: 'Suma de ML',
+  alto_x_ancho_x_profundo: 'Alto × Ancho × Profundo = m³',
 }
 
 // Fallback para planos migrados del campo tipo_sistema
@@ -28,6 +30,7 @@ const TIPO_SISTEMA_A_FORMULA: Record<string, string> = {
   trasdosados: 'ml_x_alto',
   techos: 'largo_x_ancho',
   cortineros: 'suma_ml',
+  hornacinas: 'alto_x_ancho_x_profundo',
 }
 
 const fmt = (n: number) => n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -43,7 +46,7 @@ export default function PlanosObraPage() {
 
   const [obra, setObra] = useState<any>(null)
   const [planos, setPlanos] = useState<any[]>([])
-  const [totales, setTotales] = useState<Record<string, { ml: number; m2: number }>>({})
+  const [totales, setTotales] = useState<Record<string, { ml: number; m2: number; m3: number }>>({})
   const [tipos, setTipos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [exportando, setExportando] = useState(false)
@@ -76,17 +79,19 @@ export default function PlanosObraPage() {
     if (lista.length > 0) {
       const { data: meds } = await supabase
         .from('plano_mediciones')
-        .select('plano_id, alto, plano_tramos(*)')
+        .select('*, plano_tramos(*)')
         .in('plano_id', lista.map((p: any) => p.id))
 
-      const t: Record<string, { ml: number; m2: number }> = {}
+      const t: Record<string, { ml: number; m2: number; m3: number }> = {}
       ;(meds || []).forEach((m: any) => {
         const ml = (m.plano_tramos || []).reduce((a: number, x: any) => a + Number(x.metros || 0), 0)
-        t[m.plano_id] = t[m.plano_id] || { ml: 0, m2: 0 }
+        t[m.plano_id] = t[m.plano_id] || { ml: 0, m2: 0, m3: 0 }
         t[m.plano_id].ml += ml
         const plano = lista.find((p: any) => p.id === m.plano_id)
         const formula = getFormula(plano)
-        if (formula === 'largo_x_ancho') {
+        if (formula === 'alto_x_ancho_x_profundo') {
+          t[m.plano_id].m3 += Number(m.alto || 0) * Number(m.ancho || 0) * Number(m.profundo || 0)
+        } else if (formula === 'largo_x_ancho') {
           t[m.plano_id].m2 += (m.plano_tramos || []).reduce(
             (a: number, x: any) => a + Number(x.metros || 0) * Number(x.metros_b != null ? x.metros_b : m.alto || 0), 0)
         } else if (formula !== 'suma_ml') {
@@ -196,7 +201,7 @@ export default function PlanosObraPage() {
     load()
   }
 
-  const totalObra = Object.values(totales).reduce((a, t) => ({ ml: a.ml + t.ml, m2: a.m2 + t.m2 }), { ml: 0, m2: 0 })
+  const totalObra = Object.values(totales).reduce((a, t) => ({ ml: a.ml + t.ml, m2: a.m2 + t.m2, m3: a.m3 + t.m3 }), { ml: 0, m2: 0, m3: 0 })
 
   return (
     <div className="w-full max-w-[1100px] mx-auto p-6 lg:p-10 text-white font-sans">
@@ -235,7 +240,7 @@ export default function PlanosObraPage() {
           </div>
 
           {planos.length > 0 && (
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className={`grid grid-cols-2 ${totalObra.m3 > 0 ? 'lg:grid-cols-3' : ''} gap-4 mb-8`}>
               <div className="bg-white/5 border border-white/10 rounded-3xl p-5">
                 <p className="text-[10px] font-black uppercase text-white/40 tracking-widest">ML totales</p>
                 <p className="text-3xl font-black italic">{fmt(totalObra.ml)} <span className="text-sm text-white/40">ml</span></p>
@@ -244,6 +249,12 @@ export default function PlanosObraPage() {
                 <p className="text-[10px] font-black uppercase text-emerald-400 tracking-widest">Total m²</p>
                 <p className="text-3xl font-black italic">{fmt(totalObra.m2)} <span className="text-sm text-white/40">m²</span></p>
               </div>
+              {totalObra.m3 > 0 && (
+                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-3xl p-5">
+                  <p className="text-[10px] font-black uppercase text-cyan-400 tracking-widest">Total m³</p>
+                  <p className="text-3xl font-black italic">{fmt(totalObra.m3)} <span className="text-sm text-white/40">m³</span></p>
+                </div>
+              )}
             </div>
           )}
 
@@ -259,6 +270,7 @@ export default function PlanosObraPage() {
                 const tipoNombre = p.plano_tipos_sistema?.nombre
                   || (p.tipo_sistema === 'trasdosados' ? 'Trasdosados / Tabiques'
                     : p.tipo_sistema === 'techos' ? 'Falsos techos'
+                    : p.tipo_sistema === 'hornacinas' ? 'Hornacinas / Oscuros'
                     : 'Cortineros')
                 const esRenombrando = renombrando === p.id
                 return (
@@ -287,8 +299,12 @@ export default function PlanosObraPage() {
                         )}
                         <p className="text-[10px] font-bold uppercase text-white/40">{p.zona || 'Sin zona'} · {tipoNombre}</p>
                         <p className="text-[11px] font-black text-emerald-400 mt-1">
-                          {fmt(t?.ml || 0)} ml
-                          {formula !== 'suma_ml' && ` · ${fmt(t?.m2 || 0)} m²`}
+                          {formula === 'alto_x_ancho_x_profundo'
+                            ? `${fmt(t?.m3 || 0)} m³`
+                            : <>
+                                {fmt(t?.ml || 0)} ml
+                                {formula !== 'suma_ml' && ` · ${fmt(t?.m2 || 0)} m²`}
+                              </>}
                         </p>
                       </div>
                       {!esRenombrando && (

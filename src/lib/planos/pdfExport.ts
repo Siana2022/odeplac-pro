@@ -13,7 +13,7 @@ import { renderPdfPagesToImageUrls } from '@/lib/utils/pdfRender'
  *  - Leyenda de colores/sistemas al pie de cada plano.
  */
 
-type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml'
+type Formula = 'ml_x_alto' | 'largo_x_ancho' | 'suma_ml' | 'alto_x_ancho_x_profundo'
 
 interface Tramo {
   id: string
@@ -34,6 +34,8 @@ interface Medicion {
   nombre: string
   color: string
   alto: number
+  ancho?: number | null
+  profundo?: number | null
   plano_tramos: Tramo[]
 }
 
@@ -51,12 +53,14 @@ const TIPO_A_FORMULA: Record<string, Formula> = {
   trasdosados: 'ml_x_alto',
   techos: 'largo_x_ancho',
   cortineros: 'suma_ml',
+  hornacinas: 'alto_x_ancho_x_profundo',
 }
 
 const FORMULA_LABEL: Record<Formula, string> = {
   ml_x_alto: 'ML × alto',
   largo_x_ancho: 'Largo × ancho',
   suma_ml: 'Suma de ML',
+  alto_x_ancho_x_profundo: 'Alto × ancho × profundo',
 }
 
 const fmt = (n: number) =>
@@ -64,7 +68,7 @@ const fmt = (n: number) =>
 
 function formulaOf(p: Plano): Formula {
   const f = p.plano_tipos_sistema?.formula
-  if (f === 'largo_x_ancho' || f === 'suma_ml' || f === 'ml_x_alto') return f
+  if (f === 'largo_x_ancho' || f === 'suma_ml' || f === 'ml_x_alto' || f === 'alto_x_ancho_x_profundo') return f
   return TIPO_A_FORMULA[p.tipo_sistema || ''] || 'ml_x_alto'
 }
 
@@ -73,7 +77,7 @@ function mlOf(m: Medicion): number {
 }
 
 function m2Of(m: Medicion, formula: Formula): number {
-  if (formula === 'suma_ml') return 0
+  if (formula === 'suma_ml' || formula === 'alto_x_ancho_x_profundo') return 0
   if (formula === 'largo_x_ancho') {
     return m.plano_tramos.reduce(
       (a, t) => a + Number(t.metros || 0) * Number(t.metros_b != null ? t.metros_b : m.alto || 0),
@@ -83,11 +87,16 @@ function m2Of(m: Medicion, formula: Formula): number {
   return mlOf(m) * Number(m.alto || 0)
 }
 
+function m3Of(m: Medicion): number {
+  return Number(m.alto || 0) * Number(m.ancho || 0) * Number(m.profundo || 0)
+}
+
 function tipoNombre(p: Plano): string {
   return (
     p.plano_tipos_sistema?.nombre ||
     (p.tipo_sistema === 'trasdosados' ? 'Trasdosados / Tabiques'
       : p.tipo_sistema === 'techos' ? 'Falsos techos'
+        : p.tipo_sistema === 'hornacinas' ? 'Hornacinas / Oscuros'
         : p.tipo_sistema === 'cortineros' ? 'Cortineros'
           : 'Mediciones')
   )
@@ -340,9 +349,11 @@ function drawLegend(
 
     const ml = mlOf(m)
     const m2 = m2Of(m, formula)
-    const detalle = formula === 'suma_ml'
-      ? `${fmt(ml)} ml`
-      : `${fmt(ml)} ml · ${fmt(m2)} m²`
+    const detalle = formula === 'alto_x_ancho_x_profundo'
+      ? `${fmt(Number(m.alto || 0))} × ${fmt(Number(m.ancho || 0))} × ${fmt(Number(m.profundo || 0))} = ${fmt(m3Of(m))} m³`
+      : formula === 'suma_ml'
+        ? `${fmt(ml)} ml`
+        : `${fmt(ml)} ml · ${fmt(m2)} m²`
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(detailSize)
     doc.setTextColor(100, 116, 139)
@@ -453,25 +464,29 @@ export async function exportarPlanosPdf(options: {
     medsPorPlano.set(m.plano_id, list)
   })
 
-  const filas: Array<{ p: Plano; formula: Formula; meds: Medicion[]; ml: number; m2: number }> = []
-  const sistemasGlobales = new Map<string, { nombre: string; color: string; ml: number; m2: number; formula: Formula }>()
+  const filas: Array<{ p: Plano; formula: Formula; meds: Medicion[]; ml: number; m2: number; m3: number }> = []
+  const sistemasGlobales = new Map<string, { nombre: string; color: string; ml: number; m2: number; m3: number; formula: Formula }>()
   let totalMl = 0
   let totalM2 = 0
+  let totalM3 = 0
 
   for (const p of planos) {
     const formula = formulaOf(p)
     const meds = medsPorPlano.get(p.id) || []
     const ml = meds.reduce((a, m) => a + mlOf(m), 0)
     const m2 = meds.reduce((a, m) => a + m2Of(m, formula), 0)
+    const m3 = meds.reduce((a, m) => a + m3Of(m), 0)
     totalMl += ml
     totalM2 += m2
-    filas.push({ p, formula, meds, ml, m2 })
+    totalM3 += m3
+    filas.push({ p, formula, meds, ml, m2, m3 })
 
     for (const m of meds) {
       const key = `${m.nombre}|${m.color}`
-      const prev = sistemasGlobales.get(key) || { nombre: m.nombre, color: m.color, ml: 0, m2: 0, formula }
+      const prev = sistemasGlobales.get(key) || { nombre: m.nombre, color: m.color, ml: 0, m2: 0, m3: 0, formula }
       prev.ml += mlOf(m)
       prev.m2 += m2Of(m, formula)
+      prev.m3 += m3Of(m)
       sistemasGlobales.set(key, prev)
     }
   }
@@ -537,9 +552,9 @@ export async function exportarPlanosPdf(options: {
 
     autoTable(doc, {
       startY: 66,
-      head: [['Plano', 'Zona', 'Sistema', 'ML', 'm²']],
-      body: filas.map(f => [f.p.nombre, f.p.zona || '—', tipoNombre(f.p), fmt(f.ml), fmt(f.m2)]),
-      foot: [['TOTAL', '', '', fmt(totalMl), fmt(totalM2)]],
+      head: [['Plano', 'Zona', 'Sistema', 'ML', 'm²', 'm³']],
+      body: filas.map(f => [f.p.nombre, f.p.zona || '—', tipoNombre(f.p), fmt(f.ml), fmt(f.m2), fmt(f.m3)]),
+      foot: [['TOTAL', '', '', fmt(totalMl), fmt(totalM2), fmt(totalM3)]],
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 2.5 },
       headStyles: { fillColor: [30, 61, 107], textColor: 255, fontStyle: 'bold' },
@@ -556,8 +571,8 @@ export async function exportarPlanosPdf(options: {
     const sistemas = Array.from(sistemasGlobales.values())
     autoTable(doc, {
       startY: afterTable + 14,
-      head: [['', 'Sistema', 'Cálculo', 'ML', 'm²']],
-      body: sistemas.map(s => ['●', s.nombre, FORMULA_LABEL[s.formula], fmt(s.ml), fmt(s.m2)]),
+      head: [['', 'Sistema', 'Cálculo', 'ML', 'm²', 'm³']],
+      body: sistemas.map(s => ['●', s.nombre, FORMULA_LABEL[s.formula], fmt(s.ml), fmt(s.m2), fmt(s.m3)]),
       theme: 'striped',
       styles: { fontSize: 8, cellPadding: 2.2 },
       headStyles: { fillColor: [30, 61, 107], textColor: 255, fontStyle: 'bold' },
