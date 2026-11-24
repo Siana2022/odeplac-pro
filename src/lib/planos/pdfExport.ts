@@ -209,7 +209,8 @@ function renderPlanCanvas(
 
   if (!withOverlay) return canvas
 
-  const lineW = Math.max(2, W / 700)
+  // Un poco más gruesas que antes para que no se confundan con las líneas del plano
+  const lineW = Math.max(3.2, W / 480)
   const font = Math.max(12, Math.round(W / 95))
 
   for (const m of meds) {
