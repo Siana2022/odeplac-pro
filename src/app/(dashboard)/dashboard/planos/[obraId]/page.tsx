@@ -155,6 +155,7 @@ export default function PlanosObraPage() {
       const tipoSel = tipos.find(t => t.id === tipoId)
       const formulaToTipoSistema: Record<string, string> = {
         ml_x_alto: 'trasdosados', largo_x_ancho: 'techos', suma_ml: 'cortineros',
+        alto_x_ancho_x_profundo: 'hornacinas',
       }
       const tipoSistemaLegacy = formulaToTipoSistema[tipoSel?.formula || 'ml_x_alto'] || 'trasdosados'
 
