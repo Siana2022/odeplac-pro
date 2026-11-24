@@ -8,10 +8,15 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 export function geminiModelCandidates(): string[] {
   const configured = process.env.GEMINI_MODEL?.trim()
   const defaults = [
+    // Modelos actuales (Gemini 3). Los 2.5/2.0 están retirados para cuentas nuevas.
+    'gemini-3.8-flash',
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    // Compatibilidad con claves/proyectos antiguos
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
     'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
   ]
   return Array.from(new Set([configured, ...defaults].filter(Boolean) as string[]))
 }
@@ -41,7 +46,7 @@ export async function generateWithFallback(
   options?: { generationConfig?: Record<string, any>; retries?: number }
 ): Promise<{ result: any; model: string }> {
   const models = geminiModelCandidates()
-  const retries = options?.retries ?? 3
+  const retries = options?.retries ?? 2
   let lastError: any
 
   for (const name of models) {
@@ -67,7 +72,7 @@ export async function generateWithFallback(
         const es503 = String(status) === '503' || /503|unavailable|high demand|overloaded/i.test(String(err?.message || ''))
         if (es503) {
           if (attempt < retries - 1) {
-            await new Promise(r => setTimeout(r, 4000 * (attempt + 1)))
+            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)))
             continue
           }
           console.warn(`[gemini] modelo saturado tras reintentos: ${name}`)
