@@ -67,3 +67,47 @@ export const ACCEPTED_DOC_ATTR = '.pdf,.jpg,.jpeg,.png,.webp,.heic,application/p
 export function safeFileName(name: string) {
   return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_')
 }
+
+
+/**
+ * Renderiza TODAS las páginas de un PDF a imágenes PNG (object URLs).
+ * Se usa para exportar un plano completo al PDF de medición.
+ * El llamador debe revocar las URLs con URL.revokeObjectURL.
+ */
+export async function renderPdfPagesToImageUrls(
+  url: string,
+  targetWidth = 2400
+): Promise<Array<{ imageUrl: string; width: number; height: number }>> {
+  const pdfjs = await import('pdfjs-dist')
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('No se pudo descargar el plano')
+  const data = new Uint8Array(await res.arrayBuffer())
+
+  const task = pdfjs.getDocument({ data })
+  const pdf = await task.promise
+  const pages: Array<{ imageUrl: string; width: number; height: number }> = []
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const base = page.getViewport({ scale: 1 })
+    const scale = Math.min(4, targetWidth / base.width)
+    const viewport = page.getViewport({ scale })
+
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.floor(viewport.width)
+    canvas.height = Math.floor(viewport.height)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('No se pudo crear el lienzo')
+
+    await page.render({ canvasContext: ctx, canvas, viewport }).promise
+    const blob: Blob = await new Promise((resolve, reject) =>
+      canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Error al generar imagen'))), 'image/png')
+    )
+    pages.push({ imageUrl: URL.createObjectURL(blob), width: canvas.width, height: canvas.height })
+  }
+
+  await task.destroy()
+  return pages
+}

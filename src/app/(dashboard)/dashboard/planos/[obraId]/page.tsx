@@ -4,9 +4,10 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight, Pencil, Check, Layers, Square, Minus } from 'lucide-react'
+import { ArrowLeft, FileDown, FileUp, Loader2, Plus, Ruler, Trash2, X, ChevronRight, Pencil, Check, Layers, Square, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileName } from '@/lib/utils/pdfRender'
+import { exportarPlanosPdf } from '@/lib/planos/pdfExport'
 
 const ZONAS = ['Sótano', 'Planta baja', 'Primera planta', 'Segunda planta', 'Tercera planta', 'Ático', 'Cubierta', 'Exterior']
 
@@ -45,6 +46,7 @@ export default function PlanosObraPage() {
   const [totales, setTotales] = useState<Record<string, { ml: number; m2: number }>>({})
   const [tipos, setTipos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [exportando, setExportando] = useState(false)
 
   // Modal nuevo plano
   const [modal, setModal] = useState(false)
@@ -98,6 +100,24 @@ export default function PlanosObraPage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [obraId])
+
+  const generarPdfPlanos = async () => {
+    if (exportando || planos.length === 0) return
+    setExportando(true)
+    const toastId = toast.loading('Generando PDF de planos...')
+    try {
+      await exportarPlanosPdf({
+        supabase,
+        obraId,
+        onProgress: (msg) => toast.loading(msg, { id: toastId }),
+      })
+      toast.success('PDF de planos generado', { id: toastId })
+    } catch (err: any) {
+      toast.error('Error al generar el PDF: ' + (err?.message || 'Error desconocido'), { id: toastId })
+    } finally {
+      setExportando(false)
+    }
+  }
 
   const abrirModal = () => {
     setZona('')
@@ -195,12 +215,23 @@ export default function PlanosObraPage() {
               <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-tighter">{obra.titulo}</h1>
               <p className="text-xs font-bold uppercase tracking-widest text-white/40 mt-2">{obra.clientes?.nombre || 'Sin cliente'}</p>
             </div>
-            <button
-              onClick={abrirModal}
-              className="flex items-center gap-2 bg-white text-[#1e3d6b] px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 hover:text-white transition-all shadow-xl"
-            >
-              <Plus size={18} /> Añadir nuevo plano
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={generarPdfPlanos}
+                disabled={exportando || planos.length === 0}
+                className="flex items-center gap-2 bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 hover:text-[#0f172a] transition-all shadow-xl disabled:opacity-40"
+                title={planos.length === 0 ? 'Añade al menos un plano' : 'Generar un PDF con todos los planos y su leyenda'}
+              >
+                {exportando ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
+                PDF de planos
+              </button>
+              <button
+                onClick={abrirModal}
+                className="flex items-center gap-2 bg-white text-[#1e3d6b] px-6 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-400 hover:text-white transition-all shadow-xl"
+              >
+                <Plus size={18} /> Añadir nuevo plano
+              </button>
+            </div>
           </div>
 
           {planos.length > 0 && (
