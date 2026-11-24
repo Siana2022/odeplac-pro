@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generateWithFallback } from '@/lib/ai/geminiFallback'
  
 export const maxDuration = 60
  
@@ -82,29 +83,8 @@ export async function POST(req: Request) {
     }
     const contexto = contextoCategoria[categoria] || contextoCategoria.proveedores
 
-    // 5. Llamar a Gemini (con reintentos ante 503)
+    // 5. Llamar a Gemini (con reintentos y modelos de respaldo)
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-
-    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-
-    const llamarGemini = async (intentos = 3): Promise<any> => {
-      for (let i = 0; i < intentos; i++) {
-        try {
-          return await model.generateContent([
-            { inlineData: { data: base64, mimeType: file.type } },
-            { text: prompt }
-          ])
-        } catch (err: any) {
-          const es503 = err.message?.includes('503') || err.status === 503
-          if (es503 && i < intentos - 1) {
-            await sleep(4000 * (i + 1)) // 4s, 8s
-            continue
-          }
-          throw err
-        }
-      }
-    }
 
     const prompt = `
       Analiza esta factura de proveedor y extrae los datos en formato JSON.
@@ -159,7 +139,11 @@ export async function POST(req: Request) {
         Si no hay ninguna referencia de obra, devuelve array vacío [].
     `
  
-    const result = await llamarGemini()
+    const { result, model: modeloUsado } = await generateWithFallback(genAI, [
+      { inlineData: { data: base64, mimeType: file.type } },
+      { text: prompt }
+    ])
+    console.log('[analizar-factura] modelo:', modeloUsado)
  
     const responseText = result.response.text()
  
@@ -251,7 +235,10 @@ export async function POST(req: Request) {
     }
     if (status === 404 || msg.includes('404') || msg.toLowerCase().includes('not found')) {
       return NextResponse.json(
-        { error: 'Modelo de IA no disponible. Contacta con soporte.' },
+        {
+          error:
+            'Ningún modelo de IA disponible con esta clave. Revisa el proyecto en Google AI Studio o define GEMINI_MODEL con un modelo al que tenga acceso.',
+        },
         { status: 500 }
       )
     }

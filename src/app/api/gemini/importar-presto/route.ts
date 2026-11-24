@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { generateWithFallback } from '@/lib/ai/geminiFallback'
 
 export const maxDuration = 60
 
@@ -72,7 +73,6 @@ export async function POST(req: Request) {
 
     // 5. Llamar a Gemini
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     const prompt = `
 Eres un experto extrayendo datos de presupuestos de construcción generados por el software Presto (RIB Spain).
@@ -116,7 +116,7 @@ Devuelve EXCLUSIVAMENTE este JSON sin texto adicional:
 }
 `
 
-    const result = await model.generateContent([
+    const { result } = await generateWithFallback(genAI, [
       {
         inlineData: {
           data: base64,

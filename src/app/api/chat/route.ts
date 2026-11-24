@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateWithFallback } from '@/lib/ai/geminiFallback';
 
 export const maxDuration = 60;
 
@@ -48,11 +49,6 @@ export async function POST(req: Request) {
         .select('id, nombre, unidad, precio_coste');
 
       // 2. Gemini extrae el conocimiento estructurado
-      const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
-        generationConfig: { responseMimeType: "application/json" },
-      });
-
       const catalogoTexto = catalogoMateriales
         ?.slice(0, 150)
         .map(m => `"${m.nombre}" (${m.unidad})`)
@@ -83,7 +79,9 @@ Si no encuentras match exacto, usa la descripción del usuario tal cual.
 
 Mensaje del usuario: "${currentMsgRaw}"`;
 
-      const result = await model.generateContent(extractPrompt);
+      const { result } = await generateWithFallback(genAI, extractPrompt, {
+        generationConfig: { responseMimeType: 'application/json' },
+      });
       const text = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
 
       let extraido: any;
@@ -274,8 +272,6 @@ Mensaje del usuario: "${currentMsgRaw}"`;
     }
 
     // F. GEMINI con conocimiento entrenado como prioridad máxima
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-
     const catalogoMateriales = ma?.slice(0, 120)
       .map(m => `${m.nombre} (${m.precio_coste}€/${m.unidad || 'ud'})`)
       .join(", ") || "";
@@ -302,7 +298,7 @@ EMPRESA: Clientes: ${cl?.map(c => c.nombre).join(', ') || 'N/A'} | Proveedores: 
 
 REGLAS: Responde en español, sé conciso. Usa el conocimiento aprendido con máxima prioridad. Si hay un Sistema Maestro creado para una partida, indícalo.`;
 
-    const result = await model.generateContent([
+    const { result } = await generateWithFallback(genAI, [
       { text: systemPrompt },
       { text: `Pregunta: ${currentMsgRaw}` },
     ]);
