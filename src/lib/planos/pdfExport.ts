@@ -88,7 +88,13 @@ function m2Of(m: Medicion, formula: Formula): number {
 }
 
 function m3Of(m: Medicion): number {
-  return Number(m.alto || 0) * Number(m.ancho || 0) * Number(m.profundo || 0)
+  const alto = Number(m.alto || 0)
+  const desdeTrazos = m.plano_tramos.reduce(
+    (a, t) => a + alto * Number(t.metros || 0) * Number(t.metros_b || 0),
+    0
+  )
+  if (desdeTrazos > 0) return desdeTrazos
+  return alto * Number(m.ancho || 0) * Number(m.profundo || 0)
 }
 
 function tipoNombre(p: Plano): string {
@@ -225,13 +231,19 @@ function renderPlanCanvas(
   for (const m of meds) {
     for (const t of m.plano_tramos) {
       if (t.x1 != null && t.y1 != null && t.x2 != null && t.y2 != null) {
-        const label = formula === 'largo_x_ancho' ? `L ${fmt(Number(t.metros))} m` : `${fmt(Number(t.metros))} m`
+        const label = formula === 'largo_x_ancho'
+          ? `L ${fmt(Number(t.metros))} m`
+          : formula === 'alto_x_ancho_x_profundo'
+            ? `An ${fmt(Number(t.metros))} m`
+            : `${fmt(Number(t.metros))} m`
         drawDimension(ctx, W, H, { x: Number(t.x1), y: Number(t.y1) }, { x: Number(t.x2), y: Number(t.y2) }, m.color || '#ec4899', lineW, font, label)
       }
       if (t.x3 != null && t.y3 != null && t.x4 != null && t.y4 != null) {
         const label = formula === 'largo_x_ancho'
           ? `A ${fmt(Number(t.metros_b ?? 0))} m`
-          : `${fmt(Number(t.metros_b ?? 0))} m`
+          : formula === 'alto_x_ancho_x_profundo'
+            ? `Pr ${fmt(Number(t.metros_b ?? 0))} m`
+            : `${fmt(Number(t.metros_b ?? 0))} m`
         drawDimension(ctx, W, H, { x: Number(t.x3), y: Number(t.y3) }, { x: Number(t.x4), y: Number(t.y4) }, m.color || '#ec4899', lineW, font, label)
       }
     }
@@ -350,7 +362,7 @@ function drawLegend(
     const ml = mlOf(m)
     const m2 = m2Of(m, formula)
     const detalle = formula === 'alto_x_ancho_x_profundo'
-      ? `${fmt(Number(m.alto || 0))} × ${fmt(Number(m.ancho || 0))} × ${fmt(Number(m.profundo || 0))} = ${fmt(m3Of(m))} m³`
+      ? `Alto ${fmt(Number(m.alto || 0))} m · ${fmt(m3Of(m))} m³`
       : formula === 'suma_ml'
         ? `${fmt(ml)} ml`
         : `${fmt(ml)} ml · ${fmt(m2)} m²`

@@ -69,7 +69,16 @@ const sumM2 = (m: Medicion, formula: Formula) => {
 }
 
 // Hornacinas / oscuros: Alto × Ancho × Profundo = m³
-const m3Of = (m: Medicion) => Number(m.alto || 0) * Number(m.ancho || 0) * Number(m.profundo || 0)
+const m3Of = (m: Medicion) => {
+  const alto = Number(m.alto || 0)
+  const desdeTrazos = m.plano_tramos.reduce(
+    (a, t) => a + alto * Number(t.metros || 0) * Number(t.metros_b || 0),
+    0
+  )
+  if (desdeTrazos > 0) return desdeTrazos
+  // Compatibilidad con hornacinas antiguas guardadas solo con dimensiones
+  return alto * Number(m.ancho || 0) * Number(m.profundo || 0)
+}
 
 const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: string; tramoLabel: string; tramoPlaceholder: string; sumarBtn: string; showAlto: boolean; showM2: boolean }> = {
   ml_x_alto: {
@@ -106,9 +115,9 @@ const CFG: Record<Formula, { boton: string; altoLabel: string; altoPlaceholder: 
     boton: 'Nueva hornacina',
     altoLabel: 'Alto (m)',
     altoPlaceholder: 'Ej: 0,80',
-    tramoLabel: '',
-    tramoPlaceholder: '',
-    sumarBtn: '',
+    tramoLabel: 'ancho',
+    tramoPlaceholder: 'Ej: 1,20',
+    sumarBtn: 'Siguiente medida',
     showAlto: true,
     showM2: false,
   },
@@ -138,11 +147,12 @@ export default function PlanoViewerPage() {
   const svgRef = useRef<SVGSVGElement>(null)
 
   const [modal, setModal] = useState<{ id: string | null } | null>(null)
-  const [form, setForm] = useState({ nombre: '', alto: '', ancho: '', profundo: '', color: COLORES[0].v })
+  const [form, setForm] = useState({ nombre: '', alto: '', color: COLORES[0].v })
   const [saving, setSaving] = useState(false)
 
   const formula: Formula = ((plano?.plano_tipos_sistema?.formula) || TIPO_SISTEMA_A_FORMULA[plano?.tipo_sistema || ''] || 'ml_x_alto') as Formula
   const cfg = CFG[formula]
+  const esDosLados = formula === 'largo_x_ancho' || formula === 'alto_x_ancho_x_profundo'
   const active = mediciones.find(m => m.id === activeId) || null
 
   /* ---------- Carga ---------- */
@@ -235,11 +245,9 @@ export default function PlanoViewerPage() {
     if (m) setForm({
       nombre: m.nombre,
       alto: String(m.alto ?? '').replace('.', ','),
-      ancho: String(m.ancho ?? '').replace('.', ','),
-      profundo: String(m.profundo ?? '').replace('.', ','),
       color: m.color,
     })
-    else setForm({ nombre: '', alto: '', ancho: '', profundo: '', color: COLORES[mediciones.length % COLORES.length].v })
+    else setForm({ nombre: '', alto: '', color: COLORES[mediciones.length % COLORES.length].v })
     setModal({ id: m?.id ?? null })
   }
 
@@ -247,32 +255,20 @@ export default function PlanoViewerPage() {
     e.preventDefault()
     if (!form.nombre.trim()) return toast.error('Escribe el nombre del sistema')
 
-    const esHornacina = formula === 'alto_x_ancho_x_profundo'
-
     let alto = 0
     if (cfg.showAlto) {
       alto = parseNum(form.alto)
       if (!(alto > 0)) return toast.error(`Indica el ${cfg.altoLabel.toLowerCase()} (ej: ${cfg.altoPlaceholder.replace('Ej: ', '')})`)
     }
 
-    let ancho = 0
-    let profundo = 0
-    if (esHornacina) {
-      ancho = parseNum(form.ancho)
-      profundo = parseNum(form.profundo)
-      if (!(ancho > 0)) return toast.error('Indica el ancho de la hornacina (ej: 1,20)')
-      if (!(profundo > 0)) return toast.error('Indica la profundidad de la hornacina (ej: 0,40)')
-    }
-
     setSaving(true)
     // En techos no se pide ancho: al editar se conserva el ancho antiguo para techos previos.
-    const payload: { nombre: string; color: string; alto?: number; ancho?: number; profundo?: number } = {
+    const payload: { nombre: string; color: string; alto?: number } = {
       nombre: form.nombre.trim(),
       color: form.color,
     }
     if (cfg.showAlto) payload.alto = alto
     else if (!modal?.id) payload.alto = 0
-    if (esHornacina) { payload.ancho = ancho; payload.profundo = profundo }
     if (modal?.id) {
       const { error } = await supabase.from('plano_mediciones').update(payload).eq('id', modal.id)
       setSaving(false)
@@ -285,7 +281,7 @@ export default function PlanoViewerPage() {
       if (error || !data) return toast.error('Error: ' + (error?.message || ''))
       setMediciones(prev => [...prev, { ...(data as any), plano_tramos: [] }])
       setActiveId(data.id)
-      if (!esHornacina) setDrawMode(true)
+      setDrawMode(true)
     }
     setModal(null)
   }
@@ -300,13 +296,12 @@ export default function PlanoViewerPage() {
 
   /* ---------- Tramos ---------- */
   const guardarTramo = async () => {
-    if (formula === 'alto_x_ancho_x_profundo') return
     if (!active) return toast.error('Primero selecciona o crea una medición')
     const metros = parseNum(metrosInput)
     if (!(metros > 0)) return toast.error(`Introduce los metros (ej: 3,1)`)
 
     // Techos: primer lado en memoria, el techo se guarda al introducir el segundo lado
-    if (formula === 'largo_x_ancho' && !ladoA) {
+    if (esDosLados && !ladoA) {
       if (!pending) return toast.error('Dibuja primero el trazo del primer lado')
       setLadoA({ a: pending.a, b: pending.b, metros })
       setPending(null)
@@ -317,13 +312,13 @@ export default function PlanoViewerPage() {
 
     const row: Record<string, any> = {
       medicion_id: active.id,
-      metros: formula === 'largo_x_ancho' ? ladoA!.metros : metros,
-      x1: formula === 'largo_x_ancho' ? ladoA!.a.x : pending?.a.x ?? null,
-      y1: formula === 'largo_x_ancho' ? ladoA!.a.y : pending?.a.y ?? null,
-      x2: formula === 'largo_x_ancho' ? ladoA!.b.x : pending?.b.x ?? null,
-      y2: formula === 'largo_x_ancho' ? ladoA!.b.y : pending?.b.y ?? null,
+      metros: esDosLados ? ladoA!.metros : metros,
+      x1: esDosLados ? ladoA!.a.x : pending?.a.x ?? null,
+      y1: esDosLados ? ladoA!.a.y : pending?.a.y ?? null,
+      x2: esDosLados ? ladoA!.b.x : pending?.b.x ?? null,
+      y2: esDosLados ? ladoA!.b.y : pending?.b.y ?? null,
     }
-    if (formula === 'largo_x_ancho') {
+    if (esDosLados) {
       if (!pending) return toast.error('Dibuja el trazo del segundo lado')
       row.metros_b = metros
       row.x3 = pending.a.x; row.y3 = pending.a.y
@@ -368,7 +363,6 @@ export default function PlanoViewerPage() {
   }
 
   const onSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (formula === 'alto_x_ancho_x_profundo') return
     if (!drawMode) return
     if (!active) return toast.error('Primero crea o selecciona una medición')
     if (pending) return
@@ -412,11 +406,29 @@ export default function PlanoViewerPage() {
 
   const formulaMedicion = (m: Medicion) => {
     if (formula === 'alto_x_ancho_x_profundo') {
+      if (m.plano_tramos.length === 0) {
+        // Compatibilidad con hornacinas antiguas guardadas solo con dimensiones
+        return (
+          <span className="text-[11px] font-bold text-white/60 break-words">
+            {fmt(Number(m.alto))} × {fmt(Number(m.ancho))} × {fmt(Number(m.profundo))} ={' '}
+            <span className="font-black" style={{ color: m.color }}>{fmt(m3Of(m))} m³</span>
+          </span>
+        )
+      }
       return (
-        <span className="text-[11px] font-bold text-white/60 break-words">
-          {fmt(Number(m.alto))} × {fmt(Number(m.ancho))} × {fmt(Number(m.profundo))} ={' '}
-          <span className="font-black" style={{ color: m.color }}>{fmt(m3Of(m))} m³</span>
-        </span>
+        <div className="space-y-1">
+          {m.plano_tramos.map((t, idx) => (
+            <div key={t.id} className="flex items-center gap-1.5 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-bold text-white/70">
+              <span className="flex-1 min-w-0 break-words">
+                Hornacina {idx + 1}: {fmt(Number(m.alto))} × {fmt(Number(t.metros))} × {fmt(Number(t.metros_b))} ={' '}
+                <span className="font-black" style={{ color: m.color }}>
+                  {fmt(Number(m.alto) * Number(t.metros) * Number(t.metros_b))} m³
+                </span>
+              </span>
+              <button onClick={() => eliminarTramo(m, t)} className="text-white/30 hover:text-red-400"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
       )
     }
     const ml = sumML(m)
@@ -526,29 +538,25 @@ export default function PlanoViewerPage() {
         {/* VISOR */}
         <div className="relative bg-white/5 border border-white/10 rounded-3xl overflow-hidden flex flex-col min-h-[60vh]">
           <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-black/20">
-            {formula === 'alto_x_ancho_x_profundo' ? (
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/40 px-3">
-                Alto × Ancho × Profundo = m³
-              </span>
-            ) : (
-              <>
-                <button
-                  onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null); setLadoA(null) }}
-                  disabled={!active}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all disabled:opacity-30 ${drawMode ? 'bg-emerald-400 text-[#0f172a]' : 'bg-white/10 hover:bg-white/20'}`}
-                >
-                  <PenLine size={14} /> {drawMode ? 'Dibujando...' : formula === 'largo_x_ancho' ? 'Añadir techo' : 'Dibujar tramo'}
-                </button>
-                <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
-                  {!drawMode ? 'Activa el modo dibujo'
-                    : formula === 'largo_x_ancho'
-                      ? (pending ? `Escribe la medida del ${ladoA ? 'segundo' : 'primer'} lado`
-                        : firstPoint ? `Clic en el punto final del ${ladoA ? 'segundo' : 'primer'} lado`
-                        : `Clic en el punto inicial del ${ladoA ? 'segundo' : 'primer'} lado`)
-                      : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
-                </span>
-              </>
-            )}
+            <button
+              onClick={() => { setDrawMode(d => !d); setFirstPoint(null); setPending(null); setLadoA(null) }}
+              disabled={!active}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase transition-all disabled:opacity-30 ${drawMode ? 'bg-emerald-400 text-[#0f172a]' : 'bg-white/10 hover:bg-white/20'}`}
+            >
+              <PenLine size={14} /> {drawMode ? 'Dibujando...' : formula === 'largo_x_ancho' ? 'Añadir techo' : formula === 'alto_x_ancho_x_profundo' ? 'Añadir hornacina' : 'Dibujar tramo'}
+            </button>
+            <span className="text-[10px] font-bold uppercase text-white/40 hidden sm:block">
+              {!drawMode ? 'Activa el modo dibujo'
+                : formula === 'largo_x_ancho'
+                  ? (pending ? `Escribe la medida del ${ladoA ? 'segundo' : 'primer'} lado`
+                    : firstPoint ? `Clic en el punto final del ${ladoA ? 'segundo' : 'primer'} lado`
+                    : `Clic en el punto inicial del ${ladoA ? 'segundo' : 'primer'} lado`)
+                  : formula === 'alto_x_ancho_x_profundo'
+                    ? (pending ? `Escribe la ${ladoA ? 'profundidad' : 'anchura'} (m)`
+                      : firstPoint ? `Clic en el punto final de la ${ladoA ? 'profundidad' : 'anchura'}`
+                      : `Clic en el punto inicial de la ${ladoA ? 'profundidad' : 'anchura'}`)
+                    : pending ? `Escribe los ${cfg.tramoLabel.toLowerCase()}` : firstPoint ? 'Haz clic en el punto final' : 'Haz clic en el punto inicial'}
+            </span>
             <div className="ml-auto flex items-center gap-1">
               <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))} className="p-2 rounded-lg bg-white/10 hover:bg-white/20"><Minus size={14} /></button>
               <span className="text-[11px] font-black w-12 text-center">{Math.round(zoom * 100)}%</span>
@@ -587,11 +595,11 @@ export default function PlanoViewerPage() {
                         const lineas = []
                         if (t.x1 != null && t.y1 != null && t.x2 != null && t.y2 != null) {
                           lineas.push(renderLinea(t.id, { a: { x: Number(t.x1), y: Number(t.y1) }, b: { x: Number(t.x2), y: Number(t.y2) },
-                            color: m.color, bold: m.id === activeId, label: fmt(Number(t.metros)) }))
+                            color: m.color, bold: m.id === activeId, label: formula === 'alto_x_ancho_x_profundo' ? `An ${fmt(Number(t.metros))}` : fmt(Number(t.metros)) }))
                         }
                         if (t.x3 != null && t.y3 != null && t.x4 != null && t.y4 != null) {
                           lineas.push(renderLinea(t.id + '-b', { a: { x: Number(t.x3), y: Number(t.y3) }, b: { x: Number(t.x4), y: Number(t.y4) },
-                            color: m.color, bold: m.id === activeId, label: fmt(Number(t.metros_b)) }))
+                            color: m.color, bold: m.id === activeId, label: formula === 'alto_x_ancho_x_profundo' ? `Pr ${fmt(Number(t.metros_b))}` : fmt(Number(t.metros_b)) }))
                         }
                         return lineas
                       })
@@ -636,15 +644,11 @@ export default function PlanoViewerPage() {
                     <span className="h-4 w-4 rounded-full mt-1 shrink-0" style={{ background: m.color }} />
                     <div className="flex-1 min-w-0">
                       <p className="font-black uppercase text-sm leading-tight break-words">{m.nombre}</p>
-                      {formula === 'alto_x_ancho_x_profundo' ? (
-                        <p className="text-[10px] font-bold uppercase text-white/40">
-                          {fmt(Number(m.alto))} × {fmt(Number(m.ancho))} × {fmt(Number(m.profundo))} m
-                        </p>
-                      ) : cfg.showAlto ? (
+                      {cfg.showAlto && (
                         <p className="text-[10px] font-bold uppercase text-white/40">
                           Altura: {fmt(Number(m.alto))} m
                         </p>
-                      ) : null}
+                      )}
                     </div>
                     <button onClick={e => { e.stopPropagation(); abrirModal(m) }} className="p-1.5 text-white/30 hover:text-white"><Pencil size={14} /></button>
                     <button onClick={e => { e.stopPropagation(); eliminarMedicion(m) }} className="p-1.5 text-red-400/50 hover:text-red-400"><Trash2 size={14} /></button>
@@ -676,14 +680,10 @@ export default function PlanoViewerPage() {
 
                   {isActive && (
                     <div className="mt-3 space-y-3" onClick={e => e.stopPropagation()}>
-                      {formula === 'alto_x_ancho_x_profundo' ? (
-                        <div className="text-[11px]">{formulaMedicion(m)}</div>
-                      ) : (
-                      <>
                       {m.plano_tramos.length > 0 && (
                         <>
                           <div className="text-[11px]">{formulaMedicion(m)}</div>
-                          {formula !== 'largo_x_ancho' && (
+                          {!esDosLados && (
                             <div className="flex flex-wrap gap-1.5">
                               {m.plano_tramos.map(t => (
                                 <span key={t.id} className="inline-flex items-center gap-1 bg-black/30 rounded-lg pl-2 pr-1 py-1 text-[11px] font-black">
@@ -703,7 +703,7 @@ export default function PlanoViewerPage() {
                           value={metrosInput}
                           onChange={e => setMetrosInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); guardarTramo() } }}
-                          placeholder={cfg.tramoPlaceholder}
+                          placeholder={formula === 'alto_x_ancho_x_profundo' && ladoA ? 'Profundidad (m)' : cfg.tramoPlaceholder}
                           className={`flex-1 min-w-0 bg-black/40 border rounded-xl px-3 py-2 text-sm font-bold outline-none ${pending ? 'border-emerald-400' : 'border-white/10 focus:border-white/40'}`}
                         />
                         <button
@@ -711,20 +711,24 @@ export default function PlanoViewerPage() {
                           className="px-3 rounded-xl font-black text-[#0f172a] flex items-center gap-1 text-xs uppercase"
                           style={{ background: m.color }}
                         >
-                          <Check size={14} /> {cfg.sumarBtn}
+                          <Check size={14} /> {formula === 'alto_x_ancho_x_profundo' ? (ladoA ? 'Guardar' : 'Siguiente') : cfg.sumarBtn}
                         </button>
                       </div>
-                      {formula === 'largo_x_ancho' && (
+                      {esDosLados && (
                         <p className="text-[10px] font-black uppercase text-white/40">
-                          {ladoA ? `Lado 1: ${fmt(ladoA.metros)} m · falta el segundo lado` : 'Cada techo = 2 trazos (largo y ancho)'}
+                          {ladoA
+                            ? formula === 'alto_x_ancho_x_profundo'
+                              ? `Ancho: ${fmt(ladoA.metros)} m · falta la profundidad`
+                              : `Lado 1: ${fmt(ladoA.metros)} m · falta el segundo lado`
+                            : formula === 'alto_x_ancho_x_profundo'
+                              ? 'Cada hornacina = 2 trazos (ancho y profundidad)'
+                              : 'Cada techo = 2 trazos (largo y ancho)'}
                         </p>
                       )}
                       {(pending || ladoA) && (
                         <button onClick={() => { setPending(null); setLadoA(null) }} className="text-[10px] font-black uppercase text-white/40 hover:text-white">
-                          {ladoA ? 'Cancelar este techo' : 'Descartar trazo'}
+                          {ladoA ? (formula === 'alto_x_ancho_x_profundo' ? 'Cancelar hornacina' : 'Cancelar este techo') : 'Descartar trazo'}
                         </button>
-                      )}
-                      </>
                       )}
                     </div>
                   )}
@@ -768,31 +772,6 @@ export default function PlanoViewerPage() {
                   className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
                 />
               </div>
-            )}
-
-            {formula === 'alto_x_ancho_x_profundo' && (
-              <>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Ancho (m)</label>
-                  <input
-                    inputMode="decimal"
-                    value={form.ancho}
-                    onChange={e => setForm(f => ({ ...f, ancho: e.target.value }))}
-                    placeholder="Ej: 1,20"
-                    className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Profundo (m)</label>
-                  <input
-                    inputMode="decimal"
-                    value={form.profundo}
-                    onChange={e => setForm(f => ({ ...f, profundo: e.target.value }))}
-                    placeholder="Ej: 0,40"
-                    className="mt-2 w-full bg-black/30 border border-white/10 rounded-2xl p-4 text-sm font-bold outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </>
             )}
 
             <div>
