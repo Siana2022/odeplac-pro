@@ -111,3 +111,75 @@ export async function renderPdfPagesToImageUrls(
   await task.destroy()
   return pages
 }
+
+
+/**
+ * Prepara una factura para la IA:
+ * - Imágenes: las comprime.
+ * - PDF digital (con texto): lo deja igual, Gemini lo lee rápido.
+ * - PDF escaneado (sin texto): renderiza sus páginas a JPEG 1600 px y genera
+ *   un PDF ligero. Así Gemini no procesa escaneos enormes y no agota los 60 s.
+ */
+export async function prepararFacturaParaIA(file: File): Promise<File> {
+  if (file.type.startsWith('image/')) return compressImageIfNeeded(file, 1800, 0.85)
+  if (file.type !== 'application/pdf') return file
+  if (file.size < 400 * 1024) return file
+
+  try {
+    const pdfjs = await import('pdfjs-dist')
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+
+    const data = new Uint8Array(await file.arrayBuffer())
+    const task = pdfjs.getDocument({ data })
+    const pdf = await task.promise
+
+    // ¿Tiene capa de texto? Entonces es un PDF digital y no hay que rasterizarlo.
+    let textChars = 0
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      textChars += content.items.reduce((a, item: any) => a + (typeof item.str === 'string' ? item.str.length : 0), 0)
+    }
+    if (textChars > 200 * pdf.numPages) {
+      await task.destroy()
+      return file
+    }
+
+    // Escaneo: renderizar páginas a JPEG y reensamblar un PDF ligero.
+    const { default: jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+    const maxPages = Math.min(pdf.numPages, 8)
+
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i)
+      const base = page.getViewport({ scale: 1 })
+      const scale = Math.min(2, 1600 / base.width)
+      const viewport = page.getViewport({ scale })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('No se pudo crear el lienzo')
+
+      await page.render({ canvasContext: ctx, canvas, viewport }).promise
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82)
+
+      if (i > 1) doc.addPage('a4', 'portrait')
+      const pageW = 210, pageH = 297, margin = 5
+      const ratio = Math.min((pageW - margin * 2) / canvas.width, (pageH - margin * 2) / canvas.height)
+      const w = canvas.width * ratio
+      const h = canvas.height * ratio
+      doc.addImage(dataUrl, 'JPEG', (pageW - w) / 2, (pageH - h) / 2, w, h, undefined, 'FAST')
+    }
+
+    await task.destroy()
+    const blob = doc.output('blob')
+    if (!blob || blob.size >= file.size) return file
+
+    return new File([blob], file.name.replace(/\.pdf$/i, '') + '.pdf', { type: 'application/pdf' })
+  } catch (err) {
+    console.warn('No se pudo optimizar el PDF; se envía el original', err)
+    return file
+  }
+}

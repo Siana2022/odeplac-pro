@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { saveOrQueue } from '@/lib/offline/queue';
+import { prepararFacturaParaIA } from '@/lib/utils/pdfRender';
 
 const COLUMNAS = [
   { id: 'lead',        title: 'LEADS' },
@@ -342,12 +343,13 @@ export default function PipelinePage() {
 
     // Modo individual: 1 archivo → preview como antes
     if (files.length === 1) {
-      const file = files[0];
-      if (file.type !== 'application/pdf') { toast.error('Solo se aceptan PDFs'); return; }
+      const original = files[0];
+      if (original.type !== 'application/pdf') { toast.error('Solo se aceptan PDFs'); return; }
       setIsAnalyzing(true);
       setFacturaPreview(null);
       setObraSeleccionada(null);
       try {
+        const file = await prepararFacturaParaIA(original);
         const fd = new FormData();
         fd.append('file', file);
         const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
@@ -389,8 +391,9 @@ export default function PipelinePage() {
       const item = items[i];
       setColaGastos(prev => prev.map(x => x.id === item.id ? { ...x, estado: 'procesando' } : x));
       try {
+        const file = await prepararFacturaParaIA(item.file);
         const fd = new FormData();
-        fd.append('file', item.file);
+        fd.append('file', file);
         const res = await fetch('/api/gemini/analizar-factura', { method: 'POST', body: fd });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Error al analizar');

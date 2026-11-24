@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getCategoria } from '@/lib/gastos'
-import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, compressImageIfNeeded, safeFileName } from '@/lib/utils/pdfRender'
+import { ACCEPTED_DOC_ATTR, ACCEPTED_DOC_TYPES, prepararFacturaParaIA, safeFileName } from '@/lib/utils/pdfRender'
 
 const DELAY_MS = 7000 // 7s entre requests → ~8.5 req/min (límite: 10/min)
 
@@ -71,7 +71,7 @@ export default function GastosCategoriaPage() {
     setCola(prev => prev.map(i => i.id === item.id ? { ...i, estado: 'procesando' } : i))
 
     try {
-      const file = await compressImageIfNeeded(item.file)
+      const file = await prepararFacturaParaIA(item.file)
 
       const formData = new FormData()
       formData.append('file', file)
