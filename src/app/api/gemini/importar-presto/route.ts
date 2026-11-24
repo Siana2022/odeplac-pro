@@ -10,8 +10,39 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { generateWithFallback } from '@/lib/ai/geminiFallback'
+import { aiProvider, deepseekJson, deepseekOcr } from '@/lib/ai/deepseek'
 
 export const maxDuration = 60
+
+function respuestaPresto(extracted: any) {
+  if (!Array.isArray(extracted?.partidas) || extracted.partidas.length === 0) {
+    return NextResponse.json(
+      { error: 'No se encontraron partidas en el PDF. ¿Es un presupuesto de Presto?' },
+      { status: 422 }
+    )
+  }
+
+  const partidasNormalizadas = extracted.partidas
+    .filter((p: any) => p.descripcion)
+    .map((p: any, i: number) => ({
+      item: i + 1,
+      capitulo: p.capitulo?.trim() || null,
+      descripcion: p.descripcion?.trim() || 'Sin descripción',
+      ofertamos: p.ofertamos?.trim() || null,
+      unidad: p.unidad?.trim() || 'ud',
+      medicion: parseFloat(p.medicion) || 0,
+      precio_unitario: parseFloat(p.precio_unitario) || 0,
+      total_euros: parseFloat(p.total_euros) || 0,
+    }))
+
+  return NextResponse.json({
+    success: true,
+    obra: extracted.obra?.trim() || 'Obra importada de Presto',
+    cliente: extracted.cliente?.trim() || null,
+    partidas: partidasNormalizadas,
+    total: partidasNormalizadas.reduce((acc: number, p: any) => acc + p.total_euros, 0),
+  })
+}
 
 export async function POST(req: Request) {
   try {
@@ -47,9 +78,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // 2. Verificar API key
+    // 2. Verificar API key (solo obligatoria si se usa Gemini)
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
+    if (aiProvider() === 'gemini' && !apiKey) {
       return NextResponse.json({ error: 'Servicio de IA no configurado' }, { status: 500 })
     }
 
@@ -72,7 +103,7 @@ export async function POST(req: Request) {
     const base64 = Buffer.from(arrayBuffer).toString('base64')
 
     // 5. Llamar a Gemini
-    const genAI = new GoogleGenerativeAI(apiKey)
+    const genAI = new GoogleGenerativeAI(apiKey || '')
 
     const prompt = `
 Eres un experto extrayendo datos de presupuestos de construcción generados por el software Presto (RIB Spain).
@@ -116,6 +147,12 @@ Devuelve EXCLUSIVAMENTE este JSON sin texto adicional:
 }
 `
 
+    if (aiProvider() === 'deepseek') {
+      const ocr = await deepseekOcr(file)
+      const extractedDeep = await deepseekJson(prompt, ocr.text)
+      return respuestaPresto(extractedDeep)
+    }
+
     const { result } = await generateWithFallback(genAI, [
       {
         inlineData: {
@@ -146,36 +183,20 @@ Devuelve EXCLUSIVAMENTE este JSON sin texto adicional:
     }
 
     // 7. Validar y normalizar
-    if (!Array.isArray(extracted.partidas) || extracted.partidas.length === 0) {
-      return NextResponse.json(
-        { error: 'No se encontraron partidas en el PDF. ¿Es un presupuesto de Presto?' },
-        { status: 422 }
-      )
-    }
-
-    const partidasNormalizadas = extracted.partidas
-      .filter((p: any) => p.descripcion)
-      .map((p: any, i: number) => ({
-        item: i + 1,
-        capitulo: p.capitulo?.trim() || null,
-        descripcion: p.descripcion?.trim() || 'Sin descripción',
-        ofertamos: p.ofertamos?.trim() || null,
-        unidad: p.unidad?.trim() || 'ud',
-        medicion: parseFloat(p.medicion) || 0,
-        precio_unitario: parseFloat(p.precio_unitario) || 0,
-        total_euros: parseFloat(p.total_euros) || 0,
-      }))
-
-    return NextResponse.json({
-      success: true,
-      obra: extracted.obra?.trim() || 'Obra importada de Presto',
-      cliente: extracted.cliente?.trim() || null,
-      partidas: partidasNormalizadas,
-      total: partidasNormalizadas.reduce((acc: number, p: any) => acc + p.total_euros, 0),
-    })
+    return respuestaPresto(extracted)
 
   } catch (error: any) {
-    console.error('[IMPORTAR PRESTO ERROR]:', error.message)
+    const status = error?.status || 500
+    console.error('[IMPORTAR PRESTO ERROR]:', status, error.message)
+    if (status === 402) {
+      return NextResponse.json(
+        { error: 'Saldo de DeepSeek agotado. Recarga en platform.deepseek.com y vuelve a intentarlo.' },
+        { status: 402 }
+      )
+    }
+    if (status === 401) {
+      return NextResponse.json({ error: 'API key de DeepSeek inválida o sin permisos.' }, { status: 401 })
+    }
     return NextResponse.json(
       { error: 'Error interno: ' + error.message },
       { status: 500 }

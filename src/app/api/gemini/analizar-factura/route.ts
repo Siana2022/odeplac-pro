@@ -13,9 +13,43 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { generateWithFallback } from '@/lib/ai/geminiFallback'
+import { aiProvider, deepseekJson, deepseekOcr, DeepSeekError } from '@/lib/ai/deepseek'
  
 export const maxDuration = 60
  
+function normalizarFactura(factura: any) {
+  return {
+    proveedor: factura.proveedor?.trim(),
+    numero_factura: factura.numero_factura?.trim() || 'S/N',
+    fecha: factura.fecha || new Date().toISOString().split('T')[0],
+    referencia_obra: factura.referencia_obra || 'ALMACÉN',
+    base_imponible: parseFloat(factura.base_imponible) || 0,
+    iva_porcentaje: parseFloat(factura.iva_porcentaje) || 21,
+    iva_total: parseFloat(factura.iva_total) || 0,
+    total: parseFloat(factura.total) || 0,
+    obras_detectadas: Array.isArray(factura.obras_detectadas)
+      ? factura.obras_detectadas
+          .filter((o: any) => o.nombre_obra)
+          .map((o: any) => ({
+            nombre_obra: o.nombre_obra?.trim(),
+            subtotal: parseFloat(o.subtotal) || 0,
+          }))
+      : [],
+    lineas_factura: Array.isArray(factura.lineas_factura)
+      ? factura.lineas_factura.map((l: any) => ({
+          codigo: l.codigo || null,
+          descripcion: l.descripcion?.trim() || 'Sin descripción',
+          obra_referencia: l.obra_referencia?.trim() || null,
+          cantidad: parseFloat(l.cantidad) || 0,
+          unidad: l.unidad?.trim() || 'UDS',
+          precio_unitario: parseFloat(l.precio_unitario) || 0,
+          descuento: parseFloat(l.descuento) || 0,
+          importe: parseFloat(l.importe) || 0,
+        }))
+      : [],
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // 1. Verificar sesión
@@ -40,9 +74,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
  
-    // 2. Verificar API key
+    // 2. Verificar API key (solo hace falta si se usa Gemini)
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
+    if (aiProvider() === 'gemini' && !apiKey) {
       return NextResponse.json(
         { error: 'Servicio de IA no configurado' },
         { status: 500 }
@@ -84,7 +118,7 @@ export async function POST(req: Request) {
     const contexto = contextoCategoria[categoria] || contextoCategoria.proveedores
 
     // 5. Llamar a Gemini (con reintentos y modelos de respaldo)
-    const genAI = new GoogleGenerativeAI(apiKey)
+    const genAI = new GoogleGenerativeAI(apiKey || '')
 
     const prompt = `
       Analiza esta factura de proveedor y extrae los datos en formato JSON.
@@ -139,6 +173,19 @@ export async function POST(req: Request) {
         Si no hay ninguna referencia de obra, devuelve array vacío [].
     `
  
+    if (aiProvider() === 'deepseek') {
+      const ocr = await deepseekOcr(file)
+      const facturaDeep = await deepseekJson(prompt, ocr.text)
+      if (!facturaDeep?.proveedor || !facturaDeep?.total) {
+        return NextResponse.json(
+          { error: 'No se pudieron extraer los datos básicos de la factura' },
+          { status: 422 }
+        )
+      }
+      console.log('[analizar-factura] proveedor: deepseek · páginas:', ocr.pages)
+      return NextResponse.json({ success: true, factura: normalizarFactura(facturaDeep) })
+    }
+
     const { result, model: modeloUsado } = await generateWithFallback(genAI, [
       { inlineData: { data: base64, mimeType: file.type } },
       { text: prompt }
@@ -173,37 +220,8 @@ export async function POST(req: Request) {
     }
  
     // 8. Limpiar y normalizar datos
-    const facturaLimpia = {
-      proveedor: factura.proveedor?.trim(),
-      numero_factura: factura.numero_factura?.trim() || 'S/N',
-      fecha: factura.fecha || new Date().toISOString().split('T')[0],
-      referencia_obra: factura.referencia_obra || 'ALMACÉN',
-      base_imponible: parseFloat(factura.base_imponible) || 0,
-      iva_porcentaje: parseFloat(factura.iva_porcentaje) || 21,
-      iva_total: parseFloat(factura.iva_total) || 0,
-      total: parseFloat(factura.total) || 0,
-      obras_detectadas: Array.isArray(factura.obras_detectadas)
-        ? factura.obras_detectadas
-            .filter((o: any) => o.nombre_obra)
-            .map((o: any) => ({
-              nombre_obra: o.nombre_obra?.trim(),
-              subtotal: parseFloat(o.subtotal) || 0,
-            }))
-        : [],
-      lineas_factura: Array.isArray(factura.lineas_factura)
-        ? factura.lineas_factura.map((l: any) => ({
-            codigo: l.codigo || null,
-            descripcion: l.descripcion?.trim() || 'Sin descripción',
-            obra_referencia: l.obra_referencia?.trim() || null,
-            cantidad: parseFloat(l.cantidad) || 0,
-            unidad: l.unidad?.trim() || 'UDS',
-            precio_unitario: parseFloat(l.precio_unitario) || 0,
-            descuento: parseFloat(l.descuento) || 0,
-            importe: parseFloat(l.importe) || 0,
-          }))
-        : []
-    }
- 
+    const facturaLimpia = normalizarFactura(factura)
+
     return NextResponse.json({
       success: true,
       factura: facturaLimpia
@@ -213,6 +231,20 @@ export async function POST(req: Request) {
     const msg: string = error.message || String(error)
     const status: number = error.status || error.statusCode || 500
     console.error('❌ [ANALIZAR FACTURA ERROR] status=%d msg=%s', status, msg)
+
+    // Errores específicos de DeepSeek
+    if (status === 402 || msg.toLowerCase().includes('insufficient balance') || msg.toLowerCase().includes('saldo')) {
+      return NextResponse.json(
+        { error: 'Saldo de DeepSeek agotado. Recarga en platform.deepseek.com y vuelve a intentarlo.' },
+        { status: 402 }
+      )
+    }
+    if (status === 401) {
+      return NextResponse.json(
+        { error: 'API key de DeepSeek inválida o sin permisos.' },
+        { status: 401 }
+      )
+    }
 
     // Mensajes amigables según el tipo de error de Gemini
     if (status === 503 || msg.includes('503') || msg.toLowerCase().includes('unavailable') || msg.toLowerCase().includes('high demand')) {

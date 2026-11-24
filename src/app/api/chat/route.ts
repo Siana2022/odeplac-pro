@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { generateWithFallback } from '@/lib/ai/geminiFallback';
+import { aiProvider, deepseekChat } from '@/lib/ai/deepseek';
 
 export const maxDuration = 60;
 
@@ -79,10 +80,16 @@ Si no encuentras match exacto, usa la descripción del usuario tal cual.
 
 Mensaje del usuario: "${currentMsgRaw}"`;
 
-      const { result } = await generateWithFallback(genAI, extractPrompt, {
-        generationConfig: { responseMimeType: 'application/json' },
-      });
-      const text = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
+      let text: string;
+      if (aiProvider() === 'deepseek') {
+        text = (await deepseekChat([{ role: 'user', content: extractPrompt }], { json: true }))
+          .replace(/\`\`\`json|\`\`\`/g, "").trim();
+      } else {
+        const { result } = await generateWithFallback(genAI, extractPrompt, {
+          generationConfig: { responseMimeType: 'application/json' },
+        });
+        text = result.response.text().replace(/\`\`\`json|\`\`\`/g, "").trim();
+      }
 
       let extraido: any;
       try {
@@ -298,6 +305,14 @@ EMPRESA: Clientes: ${cl?.map(c => c.nombre).join(', ') || 'N/A'} | Proveedores: 
 
 REGLAS: Responde en español, sé conciso. Usa el conocimiento aprendido con máxima prioridad. Si hay un Sistema Maestro creado para una partida, indícalo.`;
 
+    if (aiProvider() === 'deepseek') {
+      const answer = await deepseekChat([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Pregunta: ${currentMsgRaw}` },
+      ], { maxTokens: 1500 });
+      return res(answer.trim());
+    }
+
     const { result } = await generateWithFallback(genAI, [
       { text: systemPrompt },
       { text: `Pregunta: ${currentMsgRaw}` },
@@ -307,6 +322,9 @@ REGLAS: Responde en español, sé conciso. Usa el conocimiento aprendido con má
 
   } catch (error: any) {
     console.error("Error en chat:", error);
+    if (error?.status === 402) {
+      return res("El saldo de DeepSeek está agotado. Recarga en platform.deepseek.com y vuelve a intentarlo.");
+    }
     return res("Lo siento, hubo un error. Inténtalo de nuevo.");
   }
 }
