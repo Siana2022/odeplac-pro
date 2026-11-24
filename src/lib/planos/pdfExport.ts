@@ -262,11 +262,21 @@ function drawHeader(doc: jsPDF, pw: number, plan: Plano | null, obra: string, pa
   }
 }
 
+function legendCols(n: number): number {
+  if (n > 20) return 3
+  if (n > 5) return 2
+  return 1
+}
+
+function legendRowH(n: number): number {
+  return n > 20 ? 7 : 8.2
+}
+
 function legendHeight(meds: Medicion[]): number {
-  if (meds.length === 0) return 14
-  const cols = meds.length > 6 ? 2 : 1
+  if (meds.length === 0) return 16
+  const cols = legendCols(meds.length)
   const rows = Math.ceil(meds.length / cols)
-  return Math.min(62, 12 + rows * 5.4)
+  return Math.min(112, 14 + rows * legendRowH(meds.length))
 }
 
 function drawLegend(
@@ -294,25 +304,38 @@ function drawLegend(
     return
   }
 
-  const cols = meds.length > 6 ? 2 : 1
-  const colW = (width - 6) / cols
-  const rowH = meds.length > 10 ? 4.6 : 5.4
+  const cols = legendCols(meds.length)
+  const rowH = legendRowH(meds.length)
+  const colW = (width - 8) / cols
+  const rows = Math.ceil(meds.length / cols)
+  const nameSize = cols === 3 ? 6.8 : 7.4
+  const detailSize = cols === 3 ? 6.1 : 6.7
+
+  // Separador vertical entre columnas
+  if (cols > 1) {
+    doc.setDrawColor(226, 232, 240)
+    doc.setLineWidth(0.25)
+    for (let c = 1; c < cols; c++) {
+      doc.line(x + c * colW, y + 8, x + c * colW, y + 10 + rows * rowH)
+    }
+  }
 
   meds.forEach((m, i) => {
-    const col = i % cols
-    const row = Math.floor(i / cols)
+    const col = Math.floor(i / rows)
+    const row = i % rows
     const cx = x + 3 + col * colW
-    const cy = y + 8.5 + row * rowH
+    const cy = y + 11 + row * rowH
 
     const rgb = hexToRgb(m.color || '#ec4899')
     doc.setFillColor(rgb[0], rgb[1], rgb[2])
-    doc.roundedRect(cx, cy - 1.8, 3.4, 3.4, 0.8, 0.8, 'F')
+    doc.roundedRect(cx, cy - 2.2, 3.8, 3.8, 0.8, 0.8, 'F')
 
     doc.setTextColor(15, 23, 42)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(meds.length > 10 ? 6.4 : 7)
-    const nombre = m.nombre.length > 34 ? m.nombre.slice(0, 32) + '…' : m.nombre
-    doc.text(nombre, cx + 5, cy)
+    doc.setFontSize(nameSize)
+    const maxChars = cols === 3 ? 30 : 36
+    const nombre = m.nombre.length > maxChars ? m.nombre.slice(0, maxChars - 1) + '…' : m.nombre
+    doc.text(nombre, cx + 6, cy)
 
     const ml = mlOf(m)
     const m2 = m2Of(m, formula)
@@ -320,9 +343,9 @@ function drawLegend(
       ? `${fmt(ml)} ml`
       : `${fmt(ml)} ml · ${fmt(m2)} m²`
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(meds.length > 10 ? 5.8 : 6.4)
+    doc.setFontSize(detailSize)
     doc.setTextColor(100, 116, 139)
-    doc.text(detalle, cx + 5, cy + 2.6)
+    doc.text(detalle, cx + 6, cy + 3.6)
   })
 }
 
