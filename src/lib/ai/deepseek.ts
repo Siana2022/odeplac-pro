@@ -10,6 +10,7 @@ export type AIProvider = 'deepseek' | 'gemini'
 
 const BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
 const MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-flash'
+const MAX_OUTPUT_TOKENS = Number(process.env.DEEPSEEK_MAX_TOKENS || 32000)
 
 export class DeepSeekError extends Error {
   status: number
@@ -94,17 +95,33 @@ export async function deepseekJson(prompt: string, text: string, options?: { max
         },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: options?.maxTokens ?? 6000,
+      max_tokens: options?.maxTokens ?? MAX_OUTPUT_TOKENS,
       // Extracción: no necesitamos razonamiento largo; acelera y abarata.
       ...({ reasoning_effort: 'low' } as any),
     })
 
-    const content = completion.choices[0]?.message?.content || ''
+    const choice = completion.choices[0]
+    const content = choice?.message?.content || ''
+    const finish = choice?.finish_reason || '?'
     const clean = content.replace(/```json\s*/gi, '').replace(/```/g, '').trim()
+
     try {
       return JSON.parse(clean)
     } catch {
-      throw new DeepSeekError('DeepSeek no devolvió un JSON válido', 422)
+      // A veces añade texto antes/después del objeto JSON; intentamos aislarlo.
+      const start = clean.indexOf('{')
+      const end = clean.lastIndexOf('}')
+      if (start >= 0 && end > start) {
+        try {
+          return JSON.parse(clean.slice(start, end + 1))
+        } catch {}
+      }
+      console.warn('[deepseek] JSON inválido', { finish, chars: clean.length })
+      throw new DeepSeekError(
+        `DeepSeek no devolvió un JSON válido (finish: ${finish}, ${clean.length} caracteres). ` +
+        'Puede ser una factura demasiado larga; vuelve a intentarlo o divídela por páginas.',
+        422
+      )
     }
   } catch (err: any) {
     if (err instanceof DeepSeekError) throw err
