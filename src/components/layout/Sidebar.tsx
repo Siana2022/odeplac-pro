@@ -5,13 +5,14 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Briefcase, Users, Box, Truck, Settings,
   FileText, CircleDot, X, Brain, Ruler, Wallet, TrendingUp, CreditCard, GraduationCap,
-  Clock, Send, Trash2
+  Clock, Send, Trash2, HardHat
 } from 'lucide-react';
 
 const menuItems = [
   { name: 'Dashboard',         icon: LayoutDashboard, href: '/dashboard' },
   { name: 'Pipeline (Obras)',  icon: Briefcase,        href: '/dashboard/obras' },
   { name: 'Clientes',          icon: Users,            href: '/dashboard/clientes' },
+  { name: 'Trabajadores',      icon: HardHat,          href: '/dashboard/trabajadores' },
   { name: 'Materiales',        icon: Box,              href: '/dashboard/materiales' },
   { name: 'Proveedores',       icon: Truck,            href: '/dashboard/proveedores' },
   { name: 'Gastos',            icon: Wallet,           href: '/dashboard/gastos' },

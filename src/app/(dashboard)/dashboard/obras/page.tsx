@@ -118,8 +118,10 @@ export default function PipelinePage() {
 
   // ── Horas ─────────────────────────────────────────────────────────────────
   const [horas, setHoras]         = useState<any[]>([]);
+  const [trabajadores, setTrabajadores] = useState<any[]>([]);
   const [nuevaFila, setNuevaFila] = useState({
     fecha: new Date().toISOString().split('T')[0],
+    trabajador_id: '',
     trabajador: '',
     horas: 8,
   });
@@ -134,12 +136,14 @@ export default function PipelinePage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [{ data: dataObras }, { data: dataClientes }] = await Promise.all([
+      const [{ data: dataObras }, { data: dataClientes }, { data: dataTrabajadores }] = await Promise.all([
         supabase.from('obras').select('*, clientes(nombre)').order('updated_at', { ascending: false }),
         supabase.from('clientes').select('id, nombre').order('nombre'),
+        supabase.from('trabajadores').select('id, nombre, activo').order('nombre'),
       ]);
       setObras(dataObras || []);
       setClientes(dataClientes || []);
+      setTrabajadores(dataTrabajadores || []);
     } catch {
       toast.error('Error al cargar datos');
     } finally {
@@ -497,12 +501,14 @@ export default function PipelinePage() {
 
   // ── Horas handlers ────────────────────────────────────────────────────────
   const agregarHora = async () => {
-    if (!nuevaFila.trabajador.trim()) { toast.error('Introduce el nombre del trabajador'); return; }
+    if (trabajadores.length > 0 && !nuevaFila.trabajador_id) { toast.error('Selecciona un trabajador'); return; }
+    if (trabajadores.length === 0 && !nuevaFila.trabajador.trim()) { toast.error('Introduce el nombre del trabajador'); return; }
     setIsSavingHora(true);
     const row = {
       id: crypto.randomUUID(),
       obra_id: selectedObra.id,
       fecha: nuevaFila.fecha,
+      ...(nuevaFila.trabajador_id ? { trabajador_id: nuevaFila.trabajador_id } : {}),
       trabajador: nuevaFila.trabajador,
       horas: nuevaFila.horas,
       created_at: new Date().toISOString(),
@@ -510,7 +516,7 @@ export default function PipelinePage() {
     try {
       const { queued, error } = await saveOrQueue(supabase, 'obra_horas', row, 'Registro de horas');
       if (error) { toast.error('Error: ' + error); return; }
-      setNuevaFila({ fecha: new Date().toISOString().split('T')[0], trabajador: '', horas: 8 });
+      setNuevaFila({ fecha: new Date().toISOString().split('T')[0], trabajador_id: '', trabajador: '', horas: 8 });
       if (queued) {
         setHoras(prev => [row, ...prev]);
         toast.success('Horas guardadas sin conexión. Se enviarán al recuperar cobertura.');
@@ -1320,11 +1326,33 @@ export default function PipelinePage() {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Trabajador</label>
-              <input type="text" placeholder="Nombre..." value={nuevaFila.trabajador}
-                onChange={e => setNuevaFila({ ...nuevaFila, trabajador: e.target.value })}
-                onKeyDown={e => e.key === 'Enter' && agregarHora()}
-                className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
-              />
+              {trabajadores.length > 0 ? (
+                <select
+                  value={nuevaFila.trabajador_id}
+                  onChange={e => {
+                    const id = e.target.value
+                    const w = trabajadores.find(t => t.id === id)
+                    setNuevaFila({ ...nuevaFila, trabajador_id: id, trabajador: w?.nombre || '' })
+                  }}
+                  className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
+                >
+                  <option value="">Selecciona trabajador...</option>
+                  {trabajadores.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.nombre}{t.activo ? '' : ' (inactivo)'}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="Nombre..."
+                  value={nuevaFila.trabajador}
+                  onChange={e => setNuevaFila({ ...nuevaFila, trabajador: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && agregarHora()}
+                  className="w-full bg-white border-2 border-blue-100 rounded-2xl p-3 font-bold text-zinc-800 outline-none focus:border-blue-400"
+                />
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Horas</label>
